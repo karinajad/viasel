@@ -1,0 +1,376 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Viasel — Interface Wireframes</title>
+<style>
+  :root{
+    --ink:#1a1a1a; --mut:#6b7280; --line:#c9ccd1; --soft:#eef0f3;
+    --paper:#ffffff; --accent:#2f6f4f; --amber:#b7791f; --red:#b23a3a;
+    --note:#fff7e0; --noteline:#e5cf83; --mvp:#2f6f4f;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:#f4f5f7;color:var(--ink);
+    font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;line-height:1.45;}
+  .wrap{max-width:1040px;margin:0 auto;padding:28px 22px 80px;}
+  h1{font-size:24px;margin:0 0 2px;}
+  .sub{color:var(--mut);font-size:14px;margin:0 0 18px;}
+  .legend{font-size:12px;color:var(--mut);margin:6px 0 18px;}
+  .pill{display:inline-block;border-radius:999px;padding:2px 9px;font-size:11px;font-weight:600;border:1px solid var(--line);background:#fff}
+  .pill.mvp{color:#fff;background:var(--mvp);border-color:var(--mvp)}
+  .pill.later{color:var(--mut)}
+
+  /* the road */
+  .road{display:flex;gap:0;align-items:stretch;background:#fff;border:1px solid var(--line);
+    border-radius:10px;overflow:hidden;margin-bottom:6px}
+  .stop{flex:1;text-align:center;padding:10px 4px;font-size:11px;color:var(--mut);
+    border-right:1px dashed var(--line);position:relative}
+  .stop:last-child{border-right:none}
+  .stop .dot{width:12px;height:12px;border-radius:50%;border:2px solid var(--line);background:#fff;margin:0 auto 6px}
+  .stop.done .dot{background:var(--accent);border-color:var(--accent)}
+  .stop.here{background:var(--soft)}
+  .stop.here .dot{background:var(--mvp);border-color:var(--mvp);box-shadow:0 0 0 4px rgba(47,111,79,.15)}
+  .stop b{display:block;color:var(--ink);font-size:11px;letter-spacing:.02em}
+  .roadnote{font-size:11px;color:var(--mut);margin:0 0 18px}
+
+  /* tabs */
+  .tabs{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 16px}
+  .tab{border:1px solid var(--line);background:#fff;border-radius:8px;padding:7px 11px;font-size:12.5px;
+    cursor:pointer;color:var(--ink);display:flex;align-items:center;gap:6px}
+  .tab:hover{background:var(--soft)}
+  .tab.active{background:var(--ink);color:#fff;border-color:var(--ink)}
+  .tab .star{color:var(--mvp);font-weight:700}
+  .tab.active .star{color:#8fd6b0}
+
+  .panel{display:none}
+  .panel.active{display:block}
+
+  .screen{background:#fff;border:1px solid var(--line);border-radius:12px;padding:0;overflow:hidden;
+    box-shadow:0 1px 0 rgba(0,0,0,.03)}
+  .bar{background:#f0f1f4;border-bottom:1px solid var(--line);padding:8px 14px;font-size:12px;color:var(--mut);
+    display:flex;justify-content:space-between;align-items:center}
+  .bar .who{color:var(--ink);font-weight:600}
+  .body{padding:18px}
+  .two{display:grid;grid-template-columns:1fr 1fr;gap:18px}
+  @media(max-width:760px){.two{grid-template-columns:1fr}}
+
+  .card{border:1px solid var(--line);border-radius:10px;padding:14px}
+  .card h4{margin:0 0 12px;font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--mut)}
+  label{display:block;font-size:12px;color:var(--mut);margin:10px 0 4px}
+  .fld{border:1px dashed var(--line);border-radius:7px;padding:9px 11px;font-size:13px;color:var(--ink);background:#fbfbfc}
+  .fld.sel::after{content:" ▾";color:var(--mut);float:right}
+  .row2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+
+  /* price band */
+  .band{margin:6px 0 2px}
+  .band .nums{display:flex;justify-content:space-between;font-variant-numeric:tabular-nums;font-size:15px;margin-bottom:6px}
+  .band .nums .mid{font-weight:700;font-size:20px}
+  .track{height:10px;border-radius:6px;background:linear-gradient(90deg,#e7efe9,#bcd8c6,#e7efe9);position:relative;border:1px solid var(--line)}
+  .track .pin{position:absolute;top:-3px;width:2px;height:16px;background:var(--mvp)}
+  .unit{font-size:12px;color:var(--mut);margin-top:6px}
+  .dots{letter-spacing:2px}
+  .conf{display:flex;justify-content:space-between;font-size:12px;margin-top:12px;color:var(--ink)}
+  .ok{color:var(--accent);font-weight:600}
+  .warn{color:var(--amber);font-weight:600}
+
+  .btns{margin-top:14px;display:flex;gap:8px}
+  .btn{border:1px solid var(--ink);background:#fff;border-radius:8px;padding:8px 14px;font-size:13px;cursor:default}
+  .btn.pri{background:var(--mvp);border-color:var(--mvp);color:#fff}
+
+  table{width:100%;border-collapse:collapse;font-size:12.5px;margin-top:4px}
+  th,td{text-align:left;padding:8px 8px;border-bottom:1px solid var(--soft)}
+  th{color:var(--mut);font-weight:600;font-size:11px;text-transform:uppercase;letter-spacing:.04em}
+  td.num{font-variant-numeric:tabular-nums;text-align:right}
+  .st{font-size:11px;font-weight:600;border-radius:999px;padding:2px 8px;border:1px solid var(--line);white-space:nowrap}
+  .st.draft{color:var(--mut)}
+  .st.frozen{color:#fff;background:var(--mvp);border-color:var(--mvp)}
+  .st.risk{color:#fff;background:var(--red);border-color:var(--red)}
+  .st.match{color:var(--amber);border-color:var(--noteline);background:var(--note)}
+  .light{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:3px}
+  .g{background:var(--accent)}.a{background:var(--amber)}.r{background:var(--red)}.o{background:#fff;border:1px solid var(--line)}
+
+  /* callouts */
+  .note{background:var(--note);border:1px solid var(--noteline);border-radius:8px;padding:10px 12px;font-size:12.5px;margin-top:14px}
+  .note b{color:var(--amber)}
+  .callouts{margin-top:14px;display:grid;gap:8px}
+  .co{display:flex;gap:8px;font-size:12.5px;align-items:flex-start}
+  .co .n{flex:none;width:20px;height:20px;border-radius:50%;background:var(--ink);color:#fff;font-size:11px;
+    display:flex;align-items:center;justify-content:center;margin-top:1px}
+
+  .headline{display:flex;align-items:center;gap:10px;margin:0 0 4px}
+  .headline h3{margin:0;font-size:17px}
+  .desc{color:var(--mut);font-size:13px;margin:0 0 14px}
+  .ph{border:1px dashed var(--line);border-radius:8px;background:#fbfbfc;color:var(--mut);
+    font-size:12px;padding:12px;text-align:center}
+  .grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+  .kv{font-size:12.5px}.kv b{display:block;color:var(--mut);font-weight:600;font-size:11px;text-transform:uppercase;letter-spacing:.04em;margin-bottom:2px}
+  .foot{color:var(--mut);font-size:11px;margin-top:26px;text-align:center}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Viasel — Interface Wireframes</h1>
+  <p class="sub">One record per piece of equipment. Every role is a different window onto the same record.</p>
+  <p class="legend"><span class="pill mvp">MVP</span> = built first (Phase 1) &nbsp;·&nbsp; <span class="pill later">later</span> = Phases 2–4. These are layout sketches, not final design.</p>
+
+  <!-- THE ROAD -->
+  <div class="road">
+    <div class="stop here"><span class="dot"></span><b>DEMAND</b>priced &amp; frozen</div>
+    <div class="stop"><span class="dot"></span><b>SOURCING</b>quote &amp; award</div>
+    <div class="stop"><span class="dot"></span><b>AGREEMENT</b>scope &amp; terms</div>
+    <div class="stop"><span class="dot"></span><b>PRODUCTION</b>build &amp; test</div>
+    <div class="stop"><span class="dot"></span><b>CUSTODY</b>ship &amp; store</div>
+    <div class="stop"><span class="dot"></span><b>HANDOVER</b>turnover</div>
+    <div class="stop"><span class="dot"></span><b>OPERATION</b>live health</div>
+    <div class="stop"><span class="dot"></span><b>DISPOSITION</b>transfer</div>
+  </div>
+  <p class="roadnote">Every unit is a dot travelling this road. Your role decides which stop you work at — and which fields you're allowed to see.</p>
+
+  <!-- TABS -->
+  <div class="tabs">
+    <div class="tab active" data-t="design"><span class="star">★</span> Design · ROM</div>
+    <div class="tab" data-t="sourcing">Sourcing</div>
+    <div class="tab" data-t="cost">Cost / Finance</div>
+    <div class="tab" data-t="logistics">Logistics</div>
+    <div class="tab" data-t="vendor">Vendor</div>
+    <div class="tab" data-t="ops">Operations</div>
+    <div class="tab" data-t="disp">Disposition</div>
+    <div class="tab" data-t="program">Program</div>
+  </div>
+
+  <!-- ================= DESIGN / ROM (MVP) ================= -->
+  <div class="panel active" data-p="design">
+    <div class="headline"><h3>Design &amp; Program — the ROM Calculator</h3><span class="pill mvp">MVP · Phase 1</span></div>
+    <p class="desc">Type what you need. The system prices it from your own past purchases, tells you how sure it is, then you lock it.</p>
+    <div class="screen">
+      <div class="bar"><span class="who">Signed in: Design</span><span>Project: Spade Campus &nbsp;·&nbsp; road stop: <b>DEMAND</b></span></div>
+      <div class="body">
+        <div class="two">
+          <div class="card">
+            <h4>① New requirement</h4>
+            <label>Equipment type</label><div class="fld sel">Air-Cooled Chiller</div>
+            <label>Size / spec</label><div class="fld sel">350 ton</div>
+            <div class="row2">
+              <div><label>Quantity</label><div class="fld">12</div></div>
+              <div><label>Needed by</label><div class="fld">2027-03</div></div>
+            </div>
+            <label>Location / region</label><div class="fld sel">Michigan (DTW01)</div>
+          </div>
+          <div class="card">
+            <h4>② Price band <span style="float:right;color:var(--mut)">a byproduct of your history</span></h4>
+            <div class="band">
+              <div class="nums"><span>$1.18M</span><span class="mid">$1.25M</span><span>$1.34M</span></div>
+              <div class="track"><span class="pin" style="left:50%"></span></div>
+              <div class="unit">per unit &nbsp;·&nbsp; normalized to <b>$/ton</b> &nbsp;·&nbsp; extended: <b>$15.0M</b> (×12)</div>
+            </div>
+            <div class="conf">
+              <span>Confidence: <span class="dots">●●●○</span> <span class="ok">High</span> · 9 comparables</span>
+            </div>
+            <div class="conf">
+              <span>Schedule: <span class="ok">✓ date achievable</span> (lead ~34 wks)</span>
+            </div>
+            <div class="btns">
+              <span class="btn">Save to project</span>
+              <span class="btn pri">③ Freeze ▸</span>
+            </div>
+            <div class="note"><b>Honest by default:</b> if history is thin, the band widens and reads “Low · 2 comparables — falling back to quotes.” The number always says how much to trust it.</div>
+          </div>
+        </div>
+
+        <div class="card" style="margin-top:16px">
+          <h4>④ Demand board — this project</h4>
+          <table>
+            <tr><th>Requirement</th><th>Qty</th><th class="num">ROM / unit</th><th>Needed</th><th>Status</th></tr>
+            <tr><td>Air-Cooled Chiller · 350 ton</td><td>12</td><td class="num">$1.25M</td><td>2027-03</td><td><span class="st frozen">Frozen</span></td></tr>
+            <tr><td>UPS · 2MW</td><td>72</td><td class="num">$162k</td><td>2027-01</td><td><span class="st match">Matching</span></td></tr>
+            <tr><td>LV Switchboard · lineup</td><td>8</td><td class="num">$2.80M</td><td>2027-05</td><td><span class="st draft">Drafted</span></td></tr>
+            <tr><td>Padmount Transformer · 5000kVA</td><td>4</td><td class="num">$1.90M</td><td>2026-11</td><td><span class="st risk">At risk · thawed</span></td></tr>
+          </table>
+        </div>
+
+        <div class="callouts">
+          <div class="co"><span class="n">1</span><div>Enter the requirement at <b>design</b> — before any vendor or PO exists.</div></div>
+          <div class="co"><span class="n">2</span><div>The price band is a <b>query against your executed history</b>, not a separate estimating tool. Confidence + comparable count show on every result.</div></div>
+          <div class="co"><span class="n">3</span><div><b>Freeze</b> locks the requirement (scoped to project / building / system). Reversible, with full before/after history.</div></div>
+          <div class="co"><span class="n">4</span><div>Every requirement is color-coded by state. <b>Only frozen lines can be bought against</b> — the gate that protects everything downstream.</div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================= SOURCING ================= -->
+  <div class="panel" data-p="sourcing">
+    <div class="headline"><h3>Sourcing — the Buy-By Queue &amp; Leveling</h3><span class="pill later">later · Phase 2</span></div>
+    <p class="desc">The system tells you what to order next before you're late, then lines the quotes up side by side.</p>
+    <div class="screen">
+      <div class="bar"><span class="who">Signed in: Sourcing</span><span>road stop: <b>SOURCING</b></span></div>
+      <div class="body">
+        <div class="card">
+          <h4>Buy-by queue — sorted by urgency</h4>
+          <table>
+            <tr><th>Requirement</th><th>Order by</th><th>Window</th><th>Action</th></tr>
+            <tr><td>Padmount Transformer · 5000kVA</td><td>2026-08-20</td><td><span class="st risk">Overdue</span></td><td>Solicit now</td></tr>
+            <tr><td>UPS · 2MW ×72</td><td>2026-09-30</td><td><span class="st match">Opening</span></td><td>Solicit</td></tr>
+            <tr><td>Chiller · 350 ton ×12</td><td>2026-12-01</td><td><span class="st draft">Not yet</span></td><td>—</td></tr>
+          </table>
+        </div>
+        <div class="card" style="margin-top:16px">
+          <h4>Quote leveling — UPS · 2MW</h4>
+          <table>
+            <tr><th>Vendor</th><th class="num">Unit $</th><th>Lead</th><th>Capacity</th><th>Readiness</th><th></th></tr>
+            <tr><td>Vertiv</td><td class="num">$162k</td><td>34 wk</td><td>OK</td><td><span class="light g"></span><span class="light g"></span><span class="light a"></span></td><td><span class="btn">Award</span></td></tr>
+            <tr><td>Eaton</td><td class="num">$168k</td><td>41 wk</td><td>Tight</td><td><span class="light g"></span><span class="light a"></span><span class="light r"></span></td><td></td></tr>
+          </table>
+          <div class="note">The three lights = quote ready · paperwork ready · drawings accepted. <b>All three green before you can award.</b> Stated lead time vs. your historical actual becomes a negotiating point.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================= COST ================= -->
+  <div class="panel" data-p="cost">
+    <div class="headline"><h3>Cost / Finance — the Reconciliation Dashboard</h3><span class="pill later">later · Phase 2</span></div>
+    <p class="desc">Committed vs. actual and exposure compute themselves — and drill down to a single unit.</p>
+    <div class="screen">
+      <div class="bar"><span class="who">Signed in: Finance</span><span>Spade + Mitten</span></div>
+      <div class="body">
+        <div class="grid3">
+          <div class="card kv"><b>Committed</b><div style="font-size:20px;font-weight:700">$74.6M</div></div>
+          <div class="card kv"><b>Invoiced / paid</b><div style="font-size:20px;font-weight:700">$41.2M</div></div>
+          <div class="card kv"><b>Exposure if stopped today</b><div style="font-size:20px;font-weight:700;color:var(--red)">$8.9M</div></div>
+        </div>
+        <div class="card" style="margin-top:16px">
+          <h4>Reconciliation — record vs. Procore / P6</h4>
+          <div class="ph">[ committed-vs-actual by cost code, every row drills to a unit ]</div>
+          <div class="note"><b>Catches the gap automatically:</b> the $1.279M mismatch across 52 executed POs/COs on Spade + Mitten surfaces here instead of after weeks of hand-reconciling.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================= LOGISTICS ================= -->
+  <div class="panel" data-p="logistics">
+    <div class="headline"><h3>Logistics / Custody — Where-Is-Everything</h3><span class="pill later">later · Phase 3</span></div>
+    <p class="desc">Every unit's location at a glance; on the warehouse floor it's a phone scan, not a form.</p>
+    <div class="screen">
+      <div class="bar"><span class="who">Signed in: Logistics</span><span>road stop: <b>CUSTODY</b></span></div>
+      <div class="body">
+        <div class="card">
+          <h4>Units by location</h4>
+          <table>
+            <tr><th>Unit</th><th>State</th><th>Location</th><th>Exception</th></tr>
+            <tr><td>UPS-2MW-014</td><td>In transit</td><td>→ DTW01</td><td>—</td></tr>
+            <tr><td>XFMR-5000-03</td><td>Warehouse</td><td>Zone A (cond.)</td><td><span class="st risk">Storage overdue</span></td></tr>
+            <tr><td>CHLR-350-07</td><td>Staged</td><td>Laydown 2</td><td>—</td></tr>
+          </table>
+        </div>
+        <div class="card" style="margin-top:16px">
+          <h4>On the floor (phone)</h4>
+          <div class="ph">📷 Scan tag → confirm: Received ✓ · Condition ✓ · Zone [A ▾] · Photo</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================= VENDOR ================= -->
+  <div class="panel" data-p="vendor">
+    <div class="headline"><h3>Vendor portal</h3><span class="pill later">later · Phase 3</span></div>
+    <p class="desc">Report status once. Marking a shipment fires your payment — and stops four people chasing you.</p>
+    <div class="screen">
+      <div class="bar"><span class="who">Signed in: Vertiv (vendor)</span><span>PO MIT-VER-001</span></div>
+      <div class="body">
+        <div class="card">
+          <h4>Your scope &amp; what to report</h4>
+          <table>
+            <tr><th>Item</th><th>Stage</th><th>Docs</th><th>Payment</th></tr>
+            <tr><td>UPS 2MW ×72</td><td>In production</td><td>FWT ✓ · Serials ▸</td><td><span class="st draft">on shipment</span></td></tr>
+            <tr><td>CDU ×20</td><td>Released</td><td>Submittal ✓</td><td><span class="st draft">on delivery</span></td></tr>
+          </table>
+          <div class="note"><b>Their incentive:</b> submitting through the portal is the <b>fastest path to getting paid</b> — payment milestones fire on the events they report.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================= OPERATIONS ================= -->
+  <div class="panel" data-p="ops">
+    <div class="headline"><h3>Operations — the Live Health screen</h3><span class="pill later">later · Phase 4</span></div>
+    <p class="desc">Each unit green/yellow/red against its own day-one baseline. One plain-English note a day.</p>
+    <div class="screen">
+      <div class="bar"><span class="who">Signed in: Operations</span><span>road stop: <b>OPERATION</b></span></div>
+      <div class="body">
+        <div class="note" style="margin-top:0"><b>Today’s digest:</b> 3 units drifting — <b>UPS-07 battery trending warm</b> (~6 wks to threshold). Spare on hand ✓.</div>
+        <div class="card" style="margin-top:14px">
+          <h4>Fleet health</h4>
+          <table>
+            <tr><th>Unit</th><th>Health</th><th>vs. baseline</th><th>Spare</th><th>Warranty</th></tr>
+            <tr><td>UPS-05</td><td><span class="light g"></span>OK</td><td>nominal</td><td>✓</td><td>3.1 yr left</td></tr>
+            <tr><td>UPS-07</td><td><span class="light a"></span>Watch</td><td>temp +2σ</td><td>✓</td><td>3.0 yr left</td></tr>
+            <tr><td>CRAC-11</td><td><span class="light r"></span>Act</td><td>runtime −18%</td><td><span class="st risk">missing (LLE 40wk)</span></td><td>1.2 yr left</td></tr>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================= DISPOSITION ================= -->
+  <div class="panel" data-p="disp">
+    <div class="headline"><h3>Disposition — the equipment “passport”</h3><span class="pill later">later · Phase 4</span></div>
+    <p class="desc">Scan a unit and see its whole life on one page. One tap hands the record to the next owner.</p>
+    <div class="screen">
+      <div class="bar"><span class="who">Signed in: Owner / ITAD</span><span>road stop: <b>DISPOSITION</b></span></div>
+      <div class="body">
+        <div class="card">
+          <h4>UPS-2MW-014 — biography</h4>
+          <div class="grid3">
+            <div class="kv"><b>Bought</b>$162k · Vertiv · 2026</div>
+            <div class="kv"><b>Terms</b>5-yr warranty · net-45</div>
+            <div class="kv"><b>Stored</b>4 mo · conditioned</div>
+            <div class="kv"><b>Ran</b>2.9 yr · 0 faults</div>
+            <div class="kv"><b>Serviced</b>2 PM visits</div>
+            <div class="kv"><b>Health now</b><span class="light g"></span>within spec</div>
+          </div>
+          <div class="btns"><span class="btn pri">Transfer to new owner ▸</span></div>
+          <div class="note">Provenance <b>gifts</b> to the new owner; the cross-campus <b>pricing history stays</b> with you. A documented unit resells for more than an undocumented one.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================= PROGRAM ================= -->
+  <div class="panel" data-p="program">
+    <div class="headline"><h3>Program (executive) — the rollup</h3><span class="pill mvp">MVP-adjacent</span></div>
+    <p class="desc">Across all projects — every number clickable down to a single unit.</p>
+    <div class="screen">
+      <div class="bar"><span class="who">Signed in: Program</span><span>All campuses</span></div>
+      <div class="body">
+        <div class="grid3">
+          <div class="card kv"><b>Covered (owned)</b><div style="font-size:20px;font-weight:700">31%</div></div>
+          <div class="card kv"><b>Pending procurement</b><div style="font-size:20px;font-weight:700">44%</div></div>
+          <div class="card kv"><b>At risk (thawed)</b><div style="font-size:20px;font-weight:700;color:var(--red)">7%</div></div>
+        </div>
+        <div class="card" style="margin-top:16px">
+          <h4>Net change — surplus &amp; shortfall by type</h4>
+          <div class="ph">[ surplus in one project covers another’s shortfall → rematch candidates ]</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <p class="foot">Viasel — interface wireframes · one record, many windows · MVP = Design/ROM + Freeze</p>
+</div>
+
+<script>
+  const tabs = document.querySelectorAll('.tab');
+  const panels = document.querySelectorAll('.panel');
+  tabs.forEach(t=>t.addEventListener('click',()=>{
+    tabs.forEach(x=>x.classList.remove('active'));
+    panels.forEach(p=>p.classList.remove('active'));
+    t.classList.add('active');
+    document.querySelector('.panel[data-p="'+t.dataset.t+'"]').classList.add('active');
+    window.scrollTo({top:0,behavior:'smooth'});
+  }));
+</script>
+</body>
+</html>

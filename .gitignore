@@ -13,14 +13,8 @@ dist/
 build/
 .env
 
-# ── Related Digital CONFIDENTIAL source data — NEVER COMMIT ──
+# ── Raw OFCI source dumps — kept out for size/rawness (181MB, contract PDFs, PII), not tracked ──
 ofci data/
 ofci data whole/
 ofci case/
 archive/
-
-# ── Extracted / working price data (real executed pricing) ──
-rom_seed/
-
-# ── Rendered artifacts ──
-*.pdf

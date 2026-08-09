@@ -1,0 +1,34 @@
+design_term,unit_type_code,sub_type,natural_denominator,source
+CHLR,Air-Cooled Chiller,500 Ton,$/ton,candidate-A-new-subtype
+CHLR,Air-Cooled Chiller,850 Ton,$/ton,candidate-A-new-subtype
+GEN,Generator,500kW,$/kW,candidate-A-new-subtype
+H GEN,House Generator,500kW,$/kW,candidate-A-new-subtype
+XFMR,Padmount Transformer,3200kVA,$/kVA,candidate-A-new-subtype
+XFMR,House Transformer,500kVA,$/kVA,candidate-A-new-subtype
+UPS,UPS,200kW,$/kW,candidate-A-new-subtype
+UPS,UPS,2000kW,$/kW,candidate-A-new-subtype
+CRAH,CRAH,112kW,$/kW,candidate-A-new-subtype
+CRAH,CRAH,211kW,$/kW,candidate-A-new-subtype
+CRAH,Fan Wall,700kW,$/kW,candidate-A-new-subtype
+CRAC,Computer Room Air Conditioner,230kW Dx,$/kW,candidate-A-new-subtype
+PDU,PDU,75kVA,$/kVA,candidate-A-new-subtype
+PDU,Busway,40ft 400A,$/ft,candidate-A-new-subtype
+PDU,Busway,50ft 400A,$/ft,candidate-A-new-subtype
+PDU,Busway,96ft 3000A,$/ft,candidate-A-new-subtype
+CRAH,HAC,50ft Brooklyn Lite,$/ft,candidate-A-new-subtype
+SWGR,MV Switchgear,2500A Metalclad,$/unit,candidate-A-new-subtype
+SWBD,LV Switchboard,3200A 415V,$/A,candidate-A-new-subtype
+TST,Thermal Pump Skid,8in 3000gal TES,$/unit,candidate-A-new-subtype
+PXFMR,Power Transformer,360MVA 345-34.5kV,$/MVA,candidate-B-new-type
+HVSWGR,HV Distribution Switchgear,34.5/38kV,$/unit,candidate-B-new-type
+CB,Circuit Breaker,345kV,$/unit,candidate-B-new-type
+DSW,Disconnect Switch,345kV,$/unit,candidate-B-new-type
+SA,Surge Arrestor,345kV,$/unit,candidate-B-new-type
+CVT,Coupling Voltage Transformer,345kV,$/unit,candidate-B-new-type
+CAP,Capacitor Bank,34.5kV,$/unit,candidate-B-new-type
+CLR,Current Limiting Reactor,34.5kV,$/unit,candidate-B-new-type
+SST,Station Service Transformer,,$/kVA,candidate-B-new-type
+CMBX,Combined Transformer,,$/MVA,candidate-B-new-type
+NGE,Neutral Grounding Equipment,34.5kV,$/unit,candidate-B-new-type
+SGENC,Switchgear Enclosure,,$/unit,candidate-B-new-type
+CTLH,Control House,,$/unit,candidate-B-new-type
