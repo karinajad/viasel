@@ -1,0 +1,26 @@
+# ── OS / editor ──
+.DS_Store
+._*
+~$*
+
+# ── Dev ──
+node_modules/
+.venv/
+venv/
+__pycache__/
+*.pyc
+dist/
+build/
+.env
+
+# ── Related Digital CONFIDENTIAL source data — NEVER COMMIT ──
+ofci data/
+ofci data whole/
+ofci case/
+archive/
+
+# ── Extracted / working price data (real executed pricing) ──
+rom_seed/
+
+# ── Rendered artifacts ──
+*.pdf
