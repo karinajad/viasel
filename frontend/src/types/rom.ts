@@ -1,3 +1,22 @@
+export interface EquipmentType {
+  id: string
+  design_term: string
+  unit_type_code: string
+  sub_type: string | null
+  natural_denominator: string
+}
+
+export interface DemandLineRow {
+  id: string
+  project_id: string
+  qty: number
+  state: string
+  rom_unit_price: number | null
+  rom_confidence: string | null
+  spec_attributes: Record<string, unknown> | null
+  created_at: string
+}
+
 export interface RomPriceRequest {
   type_query: string
   denominator: string

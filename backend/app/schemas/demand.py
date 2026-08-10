@@ -22,6 +22,10 @@ class DemandLineCreate(BaseModel):
     target_area: str | None = None
     target_position: str | None = None
     required_by_date: date | None = None
+    # captured ROM result (the calculator's output becomes the demand line's budget)
+    rom_unit_price: float | None = None
+    rom_confidence: str | None = None
+    rom_comparables_count: int | None = None
 
 
 class DemandLineRead(BaseModel):
@@ -32,6 +36,7 @@ class DemandLineRead(BaseModel):
     state: str
     revision: int
     equipment_type_id: uuid.UUID | None
+    spec_attributes: dict | None
     target_building: str | None
     target_area: str | None
     target_position: str | None
