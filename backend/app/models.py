@@ -110,3 +110,47 @@ class ThawEvent(Base):
     actor: Mapped[str | None] = mapped_column(String)
     reason: Mapped[str | None] = mapped_column(String)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class Quote(Base):
+    """A candidate supply against a frozen demand line."""
+
+    __tablename__ = "quote"
+    __table_args__ = {"schema": SCHEMA}
+
+    id: Mapped[uuid.UUID] = _pk()
+    demand_line_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey(f"{SCHEMA}.demand_line.id"), nullable=False
+    )
+    vendor: Mapped[str] = mapped_column(String, nullable=False)
+    oem: Mapped[str | None] = mapped_column(String)
+    unit_price: Mapped[float] = mapped_column(Numeric, nullable=False)
+    lead_time_weeks: Mapped[int | None] = mapped_column(Integer)
+    denominator: Mapped[str | None] = mapped_column(String)
+    size: Mapped[float | None] = mapped_column(Numeric)
+    terms_note: Mapped[str | None] = mapped_column(String)
+    state: Mapped[str] = mapped_column(
+        String, default="received", server_default=text("'received'"), nullable=False
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class ScopeLine(Base):
+    """Committed supply — created at award, matched to the demand line."""
+
+    __tablename__ = "scope_line"
+    __table_args__ = {"schema": SCHEMA}
+
+    id: Mapped[uuid.UUID] = _pk()
+    demand_line_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey(f"{SCHEMA}.demand_line.id"), nullable=False
+    )
+    quote_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey(f"{SCHEMA}.quote.id"))
+    vendor: Mapped[str] = mapped_column(String, nullable=False)
+    unit_price: Mapped[float] = mapped_column(Numeric, nullable=False)
+    qty: Mapped[int] = mapped_column(Integer, nullable=False)
+    cost_code: Mapped[str | None] = mapped_column(String)
+    change_type: Mapped[str] = mapped_column(
+        String, default="baseline", server_default=text("'baseline'"), nullable=False
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

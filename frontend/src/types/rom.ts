@@ -17,6 +17,15 @@ export interface DemandLineRow {
   created_at: string
 }
 
+export interface Quote {
+  id: string
+  demand_line_id: string
+  vendor: string
+  unit_price: number
+  lead_time_weeks: number | null
+  state: string
+}
+
 export interface RomPriceRequest {
   type_query: string
   denominator: string
