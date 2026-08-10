@@ -14,6 +14,8 @@ export interface DemandLineRow {
   rom_unit_price: number | null
   rom_confidence: string | null
   spec_attributes: Record<string, unknown> | null
+  target_building: string | null
+  target_area: string | null
   created_at: string
 }
 

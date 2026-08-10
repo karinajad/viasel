@@ -24,12 +24,15 @@ const TABS = [
 export default function App() {
   const [project, setProject] = useState('DEMO')
   const [tab, setTab] = useState('demand')
+  const projectsQ = useQuery({ queryKey: ['projects'], queryFn: () => apiGet<string[]>('/projects') })
+  const projects = projectsQ.data ?? []
   return (
     <div className="wrap">
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
         <h1>Viasel</h1>
         <label style={{ fontSize: 12, color: 'var(--mut)' }}>Project&nbsp;
-          <input className="si" style={{ width: 120 }} value={project} onChange={(e) => setProject(e.target.value)} />
+          <input className="si" style={{ width: 160 }} list="projects" value={project} onChange={(e) => setProject(e.target.value)} placeholder="pick or type new" />
+          <datalist id="projects">{projects.map((p) => <option key={p} value={p} />)}</datalist>
         </label>
       </div>
       <p className="sub">One record per unit — priced from history, frozen, sourced, awarded.</p>
@@ -76,6 +79,8 @@ function DemandFace({ project }: { project: string }) {
   const [type, setType] = useState('Padmount Transformer')
   const [sub, setSub] = useState('')
   const [qty, setQty] = useState(12)
+  const [building, setBuilding] = useState('')
+  const [area, setArea] = useState('')
   const subs = subsFor(type)
   const effSub = sub || subs[0] || ''
   const size = parseSize(effSub) ?? 1
@@ -88,6 +93,7 @@ function DemandFace({ project }: { project: string }) {
     mutationFn: () => apiPost<DemandLineRow>('/demand-lines', {
       project_id: project, qty: Number(qty), equipment_type_id: row?.id ?? null,
       spec_attributes: { type_query: type, denominator: denom, size, sub: effSub },
+      target_building: building || null, target_area: area || null,
       rom_unit_price: band?.unit_mid ?? null, rom_confidence: band?.confidence_tier ?? null, rom_comparables_count: band?.comparables_count ?? null,
     }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['demand-lines'] }),
@@ -113,6 +119,10 @@ function DemandFace({ project }: { project: string }) {
           </select>
           <label>Quantity</label>
           <input className="fld" type="number" value={qty} onChange={(e) => setQty(Number(e.target.value))} />
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+            <div><label>Building</label><input className="fld" value={building} onChange={(e) => setBuilding(e.target.value)} placeholder="e.g. C1" /></div>
+            <div><label>Area / hall</label><input className="fld" value={area} onChange={(e) => setArea(e.target.value)} placeholder="e.g. DH3" /></div>
+          </div>
           <div style={{ marginTop: 12, fontSize: 12, color: 'var(--mut)', display: 'flex', gap: 14 }}>
             <span>size <strong className="chip">{size}</strong></span><span>denominator <strong className="chip">{denom}</strong></span>
           </div>
@@ -158,19 +168,21 @@ function DemandBoard({ project }: { project: string }) {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <h4 style={{ margin: 0 }}>③ Demand board</h4>
         <div style={{ display: 'flex', gap: 8 }}>
-          <select className="si" value={scope} onChange={(e) => setScope(e.target.value)}><option value="project">project</option><option value="building">building</option><option value="system">system</option></select>
+          <span style={{ fontSize: 11, color: 'var(--mut)', alignSelf: 'center' }}>freeze as</span>
+          <select className="si" value={scope} onChange={(e) => setScope(e.target.value)} title="how much of the design this freeze locks"><option value="project">project</option><option value="building">building</option><option value="system">system</option></select>
           <button className="btn pri sm" onClick={() => freezeM.mutate()} disabled={selected.length === 0 || freezeM.isPending}>Freeze selected ({selected.length})</button>
         </div>
       </div>
       {lines.length === 0 && <p style={{ color: 'var(--mut)', fontSize: 13 }}>No demand yet — price a requirement and save it.</p>}
       {lines.length > 0 && (
         <table style={{ marginTop: 8 }}>
-          <thead><tr><th style={{ width: 26 }} /><th>Requirement</th><th className="num">Qty</th><th className="num">ROM / unit</th><th>Status</th><th /></tr></thead>
+          <thead><tr><th style={{ width: 26 }} /><th>Requirement</th><th>Building</th><th className="num">Qty</th><th className="num">ROM / unit</th><th>Status</th><th /></tr></thead>
           <tbody>
             {lines.map((d) => (
               <tr key={d.id}>
                 <td>{d.state === 'drafted' && <input type="checkbox" checked={selected.includes(d.id)} onChange={() => toggle(d.id)} />}</td>
                 <td>{describe(d) || '—'}</td>
+                <td>{d.target_building ?? '—'}{d.target_area ? ` · ${d.target_area}` : ''}</td>
                 <td className="num">{d.qty}</td>
                 <td className="num">{money(d.rom_unit_price)}</td>
                 <td><span className="st" style={{ background: STATE[d.state] ?? '#6b7280' }}>{d.state}</span></td>
@@ -198,18 +210,19 @@ function SourcingFace({ project }: { project: string }) {
         {lines.length === 0 && <p style={{ color: 'var(--mut)', fontSize: 13 }}>Nothing to source yet — freeze a demand line on the <strong>Demand</strong> tab.</p>}
         {lines.length > 0 && (
           <table style={{ marginTop: 8 }}>
-            <thead><tr><th>Requirement</th><th className="num">Qty</th><th className="num">ROM / unit</th><th>Status</th><th /></tr></thead>
+            <thead><tr><th>Requirement</th><th>Building</th><th className="num">Qty</th><th className="num">ROM / unit</th><th>Status</th><th /></tr></thead>
             <tbody>
               {lines.map((d) => { const a = d.spec_attributes ?? {}; return (
                 <Fragment key={d.id}>
                   <tr>
                     <td>{describe(d) || '—'}</td>
+                    <td>{d.target_building ?? '—'}{d.target_area ? ` · ${d.target_area}` : ''}</td>
                     <td className="num">{d.qty}</td>
                     <td className="num">{money(d.rom_unit_price)}</td>
                     <td><span className="st" style={{ background: STATE[d.state] ?? '#6b7280' }}>{d.state}</span></td>
                     <td className="num"><button className="btn sm" onClick={() => setExpanded(expanded === d.id ? null : d.id)}>{expanded === d.id ? 'Hide' : (d.state === 'matched' ? 'View ▸' : 'Source ▸')}</button></td>
                   </tr>
-                  {expanded === d.id && <tr><td colSpan={5} style={{ background: '#fafbfc' }}><SourcingPanel demandLineId={d.id} state={d.state} denominator={String(a.denominator ?? '$/unit')} size={Number(a.size ?? 1)} /></td></tr>}
+                  {expanded === d.id && <tr><td colSpan={6} style={{ background: '#fafbfc' }}><SourcingPanel demandLineId={d.id} state={d.state} denominator={String(a.denominator ?? '$/unit')} size={Number(a.size ?? 1)} /></td></tr>}
                 </Fragment>
               ) })}
             </tbody>

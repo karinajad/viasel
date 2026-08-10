@@ -27,6 +27,11 @@ def list_equipment_types(session: Session = Depends(get_session)) -> list[Equipm
     return list(session.scalars(select(EquipmentType).order_by(EquipmentType.design_term)))
 
 
+@router.get("/projects", response_model=list[str])
+def list_projects(session: Session = Depends(get_session)) -> list[str]:
+    return list(session.scalars(select(DemandLine.project_id).distinct().order_by(DemandLine.project_id)))
+
+
 @router.post("/demand-lines", response_model=DemandLineRead, status_code=201)
 def create_demand_line(
     body: DemandLineCreate, session: Session = Depends(get_session)
