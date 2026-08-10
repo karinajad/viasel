@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.routers import demand, projects, rom, sourcing
+from app.routers import demand, packaging, projects, rom, sourcing
 
 app = FastAPI(title="Viasel")
 
@@ -21,4 +21,5 @@ def health() -> dict[str, str]:
 app.include_router(rom.router)
 app.include_router(demand.router)
 app.include_router(sourcing.router)
+app.include_router(packaging.router)
 app.include_router(projects.router)

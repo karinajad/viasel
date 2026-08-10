@@ -3,6 +3,7 @@
 import uuid
 
 from fastapi.testclient import TestClient
+from sqlalchemy import text
 
 from app.config import settings
 from app.db import SessionLocal
@@ -49,3 +50,139 @@ def test_create_demand_line_then_cleanup() -> None:
     with SessionLocal() as s:
         s.query(DemandLine).filter(DemandLine.id == created_id).delete()
         s.commit()
+
+
+def test_rom_price_batch_endpoint() -> None:
+    r = client.post(
+        "/rom/price-batch",
+        json={
+            "lines": [
+                {"type_query": "Transformer", "denominator": "$/kVA", "size": 5000, "qty": 12},
+                {"type_query": "Generator", "denominator": "$/kW", "size": 500, "qty": 2},
+            ],
+            "escalation_pct": 0.05,
+        },
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert len(body["lines"]) == 2
+    roll = body["rollup"]
+    assert roll["line_count"] == 2 and roll["total_qty"] == 14
+    assert roll["total_low"] <= roll["total_mid"] <= roll["total_high"]
+    assert roll["confidence_tier"] in {"high", "medium", "low", "none"}
+
+
+def test_rom_price_batch_rejects_an_empty_list() -> None:
+    r = client.post("/rom/price-batch", json={"lines": []})
+    assert r.status_code == 422
+
+
+def test_create_demand_lines_batch_then_cleanup() -> None:
+    rows = [
+        {
+            "project_id": "APIBATCH",
+            "qty": q,
+            "spec_attributes": {"type_query": "Transformer", "denominator": "$/kVA", "size": 5000},
+            "target_building": "C1",
+            "rom_unit_price": 500000.0,
+        }
+        for q in (3, 5)
+    ]
+    r = client.post("/demand-lines/batch", json={"lines": rows})
+    assert r.status_code == 201
+    created = r.json()
+    assert len(created) == 2
+    assert {d["qty"] for d in created} == {3, 5}
+    assert all(d["state"] == "drafted" for d in created)
+    assert all(d["target_building"] == "C1" for d in created)
+
+    listed = client.get("/demand-lines", params={"project": "APIBATCH"}).json()
+    assert len(listed) == 2
+
+    with SessionLocal() as s:
+        s.query(DemandLine).filter(DemandLine.project_id == "APIBATCH").delete()
+        s.commit()
+
+
+def test_package_candidates_quote_and_award_then_cleanup() -> None:
+    project = "APIPKG"
+    spec = {"type_query": "Padmount Transformer", "denominator": "$/kVA", "size": 5000}
+    created = client.post(
+        "/demand-lines/batch",
+        json={
+            "lines": [
+                {"project_id": project, "qty": 12, "spec_attributes": spec,
+                 "target_building": "C1", "rom_unit_price": 300000.0},
+                {"project_id": project, "qty": 8, "spec_attributes": spec,
+                 "target_building": "C2", "rom_unit_price": 300000.0},
+            ]
+        },
+    ).json()
+    ids = [d["id"] for d in created]
+
+    try:
+        # nothing is sourceable until it is frozen
+        assert client.get("/packages/candidates", params={"project": project}).json()["groups"] == []
+        client.post("/freeze", json={"line_ids": ids, "project_id": project, "scope": "project", "actor": "test"})
+
+        cand = client.get("/packages/candidates", params={"project": project}).json()
+        assert len(cand["groups"]) == 1
+        group = cand["groups"][0]
+        assert group["total_qty"] == 20 and group["line_count"] == 2
+
+        r = client.post("/packages", json={"project_id": project, "demand_line_ids": group["demand_line_ids"]})
+        assert r.status_code == 201
+        pkg = r.json()["package"]
+        assert pkg["code"] == "PKG-01" and pkg["total_qty"] == 20
+        assert pkg["rom_extended"] == 300000.0 * 20
+
+        # the same lines can't be packaged twice
+        again = client.post("/packages", json={"project_id": project, "demand_line_ids": group["demand_line_ids"]})
+        assert again.status_code == 409
+
+        client.post(f"/packages/{pkg['id']}/quotes", json={"vendor": "Eaton", "unit_price": 507533.0, "lead_time_weeks": 52})
+        d = client.post(
+            f"/packages/{pkg['id']}/quotes",
+            json={"vendor": "Parrish Hare", "unit_price": 306074.0, "lead_time_weeks": 34},
+        ).json()
+        rows = d["leveling"]
+        assert [x["vendor"] for x in rows] == ["Parrish Hare", "Eaton"]  # leveled, cheapest first
+        assert rows[0]["is_low"] and rows[0]["normalized"] == round(306074.0 / 5000, 2)
+        assert rows[0]["extended"] == round(306074.0 * 20, 2)
+
+        awarded = client.post(f"/packages/{pkg['id']}/award", json={"quote_id": rows[0]["quote_id"]})
+        assert awarded.status_code == 200
+        assert sorted(sl["qty"] for sl in awarded.json()) == [8, 12]  # one scope line per unit record
+
+        after = client.get(f"/packages/{pkg['id']}").json()["package"]
+        assert after["state"] == "awarded" and after["awarded_vendor"] == "Parrish Hare"
+        assert client.post(f"/packages/{pkg['id']}/award", json={"quote_id": rows[0]["quote_id"]}).status_code == 409
+        states = [d["state"] for d in client.get("/demand-lines", params={"project": project}).json()]
+        assert states == ["matched", "matched"]
+    finally:
+        with SessionLocal() as s:
+            s.execute(
+                text(
+                    "delete from viasel.scope_line where demand_line_id in"
+                    " (select id from viasel.demand_line where project_id = :p)"
+                ),
+                {"p": project},
+            )
+            s.execute(
+                text(
+                    "delete from viasel.quote where sourcing_package_id in"
+                    " (select id from viasel.sourcing_package where project_id = :p)"
+                ),
+                {"p": project},
+            )
+            s.execute(
+                text(
+                    "delete from viasel.package_line where sourcing_package_id in"
+                    " (select id from viasel.sourcing_package where project_id = :p)"
+                ),
+                {"p": project},
+            )
+            s.execute(text("delete from viasel.sourcing_package where project_id = :p"), {"p": project})
+            s.execute(text("delete from viasel.freeze_event where project_id = :p"), {"p": project})
+            s.execute(text("delete from viasel.demand_line where project_id = :p"), {"p": project})
+            s.commit()

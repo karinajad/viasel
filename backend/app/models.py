@@ -6,7 +6,19 @@ Physics-only equipment types + executed price corpus + demand lines + freeze/tha
 import uuid
 from datetime import date, datetime
 
-from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Integer, Numeric, String, func, text
+from sqlalchemy import (
+    Boolean,
+    CheckConstraint,
+    Date,
+    DateTime,
+    ForeignKey,
+    Index,
+    Integer,
+    Numeric,
+    String,
+    func,
+    text,
+)
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -112,15 +124,77 @@ class ThawEvent(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
-class Quote(Base):
-    """A candidate supply against a frozen demand line."""
+class SourcingPackage(Base):
+    """A bid package — one equipment type at one size, bought as a lot across the project.
 
-    __tablename__ = "quote"
+    Pooling is strict: every line in a package shares (type, denominator, size), so a single
+    vendor price per unit levels against every line in it without any arithmetic.
+    """
+
+    __tablename__ = "sourcing_package"
     __table_args__ = {"schema": SCHEMA}
 
     id: Mapped[uuid.UUID] = _pk()
+    project_id: Mapped[str] = mapped_column(String, nullable=False)
+    code: Mapped[str] = mapped_column(String, nullable=False)  # PKG-01, PKG-02 … per project
+    equipment_type_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey(f"{SCHEMA}.equipment_type.id")
+    )
+    type_query: Mapped[str] = mapped_column(String, nullable=False)
+    denominator: Mapped[str] = mapped_column(String, nullable=False)
+    size: Mapped[float] = mapped_column(Numeric, nullable=False)
+    state: Mapped[str] = mapped_column(
+        String, default="open", server_default=text("'open'"), nullable=False
+    )  # open | awarded | cancelled
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class PackageLine(Base):
+    """Which demand lines a package covers. Soft-deleted, so re-packaging keeps its history."""
+
+    __tablename__ = "package_line"
+    __table_args__ = (
+        # a unit can be in only one open package at a time — no double-sourcing
+        Index(
+            "package_line_one_active",
+            "demand_line_id",
+            unique=True,
+            postgresql_where=text("active"),
+        ),
+        {"schema": SCHEMA},
+    )
+
+    id: Mapped[uuid.UUID] = _pk()
+    sourcing_package_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey(f"{SCHEMA}.sourcing_package.id"), nullable=False
+    )
     demand_line_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey(f"{SCHEMA}.demand_line.id"), nullable=False
+    )
+    active: Mapped[bool] = mapped_column(
+        Boolean, default=True, server_default=text("true"), nullable=False
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class Quote(Base):
+    """A candidate supply — against a bid package, or against a single frozen demand line."""
+
+    __tablename__ = "quote"
+    __table_args__ = (
+        CheckConstraint(
+            "(demand_line_id IS NULL) <> (sourcing_package_id IS NULL)",
+            name="quote_target_exactly_one",
+        ),
+        {"schema": SCHEMA},
+    )
+
+    id: Mapped[uuid.UUID] = _pk()
+    demand_line_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey(f"{SCHEMA}.demand_line.id")
+    )
+    sourcing_package_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey(f"{SCHEMA}.sourcing_package.id")
     )
     vendor: Mapped[str] = mapped_column(String, nullable=False)
     oem: Mapped[str | None] = mapped_column(String)
