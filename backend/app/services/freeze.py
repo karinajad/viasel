@@ -93,3 +93,20 @@ def assert_frozen_for_supply(dl: DemandLine) -> None:
     """The gate: supply may only be committed against a frozen demand line."""
     if dl.state != FROZEN:
         raise DemandNotFrozen(dl.state)
+
+
+def thaw_line(session: Session, dl: DemandLine, actor: str, reason: str | None = None) -> ThawEvent:
+    """Reopen one demand line by finding the latest freeze event that covers it."""
+    events = session.scalars(
+        select(FreezeEvent)
+        .where(FreezeEvent.project_id == dl.project_id)
+        .order_by(FreezeEvent.created_at.desc())
+    ).all()
+    fe = next((e for e in events if e.demand_line_ids and str(dl.id) in e.demand_line_ids), None)
+    if fe is None:
+        raise ValueError("no freeze event found for this line")
+    transition(dl, THAWED)
+    event = ThawEvent(freeze_event_id=fe.id, released_line_ids=[str(dl.id)], actor=actor, reason=reason)
+    session.add(event)
+    session.flush()
+    return event

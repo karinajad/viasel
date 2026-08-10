@@ -61,6 +61,10 @@ class ThawRequest(BaseModel):
     triggering_odd_id: str | None = None
 
 
+class ThawLineRequest(BaseModel):
+    reason: str | None = None
+
+
 class FreezeEventRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: uuid.UUID

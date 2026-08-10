@@ -4,11 +4,17 @@ import uuid
 
 from fastapi.testclient import TestClient
 
+from app.config import settings
 from app.db import SessionLocal
 from app.main import app
 from app.models import DemandLine
 
-client = TestClient(app)
+client = TestClient(app, headers={"X-API-Key": settings.API_TOKEN})
+
+
+def test_requires_api_key() -> None:
+    r = TestClient(app).get("/equipment-types")  # no key
+    assert r.status_code == 401
 
 
 def test_rom_price_endpoint() -> None:

@@ -5,12 +5,13 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.db import get_session
+from app.deps import require_token
 from app.models import DemandLine, Quote
 from app.schemas.sourcing import AwardRequest, QuoteCreate, QuoteRead, ScopeLineRead
 from app.services.freeze import DemandNotFrozen
 from app.services.sourcing import add_quote, award
 
-router = APIRouter(tags=["sourcing"])
+router = APIRouter(tags=["sourcing"], dependencies=[Depends(require_token)])
 
 
 def _demand_line(session: Session, dl_id: uuid.UUID) -> DemandLine:

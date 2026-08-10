@@ -1,8 +1,11 @@
+import uuid
+
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.db import get_session
+from app.deps import require_token
 from app.models import DemandLine, EquipmentType
 from app.schemas.demand import (
     DemandLineCreate,
@@ -11,11 +14,12 @@ from app.schemas.demand import (
     FreezeEventRead,
     FreezeRequest,
     ThawEventRead,
+    ThawLineRequest,
     ThawRequest,
 )
-from app.services.freeze import DemandNotFrozen, InvalidTransition, freeze, thaw
+from app.services.freeze import DemandNotFrozen, InvalidTransition, freeze, thaw, thaw_line
 
-router = APIRouter(tags=["demand"])
+router = APIRouter(tags=["demand"], dependencies=[Depends(require_token)])
 
 
 @router.get("/equipment-types", response_model=list[EquipmentTypeRead])
@@ -67,6 +71,22 @@ def thaw_lines(body: ThawRequest, session: Session = Depends(get_session)) -> ob
             body.reason, body.triggering_odd_id,
         )
     except (InvalidTransition, DemandNotFrozen) as e:
+        raise HTTPException(status_code=409, detail=str(e)) from e
+    session.commit()
+    session.refresh(event)
+    return event
+
+
+@router.post("/demand-lines/{dl_id}/thaw", response_model=ThawEventRead)
+def thaw_one(
+    dl_id: uuid.UUID, body: ThawLineRequest, session: Session = Depends(get_session)
+) -> object:
+    dl = session.get(DemandLine, dl_id)
+    if dl is None:
+        raise HTTPException(status_code=404, detail="demand line not found")
+    try:
+        event = thaw_line(session, dl, actor="web", reason=body.reason)
+    except (InvalidTransition, ValueError) as e:
         raise HTTPException(status_code=409, detail=str(e)) from e
     session.commit()
     session.refresh(event)

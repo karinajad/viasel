@@ -3,8 +3,6 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { apiGet, apiPost } from './services/api'
 import type { DemandLineRow, EquipmentType, Quote, RomBand, RomPriceRequest } from './types/rom'
 
-const PROJECT = 'DEMO'
-
 const money = (n: number | null): string =>
   n == null ? '—' : '$' + Math.round(n).toLocaleString()
 
@@ -27,6 +25,8 @@ const smallInput: React.CSSProperties = { padding: '6px 8px', border: '1px solid
 
 function App() {
   const qc = useQueryClient()
+  const [project, setProject] = useState('DEMO')
+
   const typesQ = useQuery({ queryKey: ['equipment-types'], queryFn: () => apiGet<EquipmentType[]>('/equipment-types') })
   const types = typesQ.data ?? []
   const unitCodes = [...new Set(types.map((t) => t.unit_type_code))].sort()
@@ -51,7 +51,7 @@ function App() {
   const saveM = useMutation({
     mutationFn: () =>
       apiPost<DemandLineRow>('/demand-lines', {
-        project_id: PROJECT, qty: Number(qty), equipment_type_id: typeRow?.id ?? null,
+        project_id: project, qty: Number(qty), equipment_type_id: typeRow?.id ?? null,
         spec_attributes: { type_query: type, denominator, size, sub: effectiveSub },
         rom_unit_price: band?.unit_mid ?? null, rom_confidence: band?.confidence_tier ?? null,
         rom_comparables_count: band?.comparables_count ?? null,
@@ -61,7 +61,13 @@ function App() {
 
   return (
     <main style={{ fontFamily: 'system-ui, sans-serif', color: '#1a1a1a', maxWidth: 960, margin: '0 auto', padding: '2.5rem 1.5rem' }}>
-      <h1 style={{ marginBottom: 2 }}>Viasel — Design &amp; Sourcing</h1>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+        <h1 style={{ marginBottom: 2 }}>Viasel — Design &amp; Sourcing</h1>
+        <label style={{ fontSize: 12, color: '#6b7280' }}>
+          Project&nbsp;
+          <input value={project} onChange={(e) => setProject(e.target.value)} style={{ ...smallInput, width: 120 }} />
+        </label>
+      </div>
       <p style={{ color: '#6b7280', marginTop: 0 }}>Price from history → save as demand → freeze → source & award.</p>
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 18, marginTop: 14 }}>
@@ -91,7 +97,7 @@ function App() {
 
         <div style={card}>
           <h3 style={{ marginTop: 0, fontSize: 13, textTransform: 'uppercase', letterSpacing: '.06em', color: '#6b7280' }}>Price band</h3>
-          {priceM.isError && <p style={{ color: '#b23a3a' }}>Couldn’t reach the API (backend on :8000?).</p>}
+          {priceM.isError && <p style={{ color: '#b23a3a' }}>Couldn’t reach the API (backend on :8000, key set?).</p>}
           {!band && !priceM.isError && <p style={{ color: '#6b7280' }}>Pick a type and hit “Price it”.</p>}
           {band && (
             <>
@@ -110,34 +116,41 @@ function App() {
         </div>
       </div>
 
-      <DemandBoard />
+      <DemandBoard project={project} />
     </main>
   )
 }
 
-function DemandBoard() {
+function DemandBoard({ project }: { project: string }) {
   const qc = useQueryClient()
   const [selected, setSelected] = useState<string[]>([])
   const [scope, setScope] = useState('project')
   const [expanded, setExpanded] = useState<string | null>(null)
 
-  const q = useQuery({ queryKey: ['demand-lines', PROJECT], queryFn: () => apiGet<DemandLineRow[]>(`/demand-lines?project=${PROJECT}`) })
+  const q = useQuery({ queryKey: ['demand-lines', project], queryFn: () => apiGet<DemandLineRow[]>(`/demand-lines?project=${project}`) })
   const lines = q.data ?? []
 
+  const invalidate = () => qc.invalidateQueries({ queryKey: ['demand-lines'] })
   const freezeM = useMutation({
-    mutationFn: () => apiPost('/freeze', { line_ids: selected, project_id: PROJECT, scope, actor: 'web' }),
-    onSuccess: () => { setSelected([]); qc.invalidateQueries({ queryKey: ['demand-lines'] }) },
+    mutationFn: () => apiPost('/freeze', { line_ids: selected, project_id: project, scope, actor: 'web' }),
+    onSuccess: () => { setSelected([]); invalidate() },
+  })
+  const thawM = useMutation({
+    mutationFn: (id: string) => apiPost(`/demand-lines/${id}/thaw`, { reason: null }),
+    onSuccess: invalidate,
   })
   const toggle = (id: string) => setSelected((s) => (s.includes(id) ? s.filter((x) => x !== id) : [...s, id]))
+
+  const attrs = (d: DemandLineRow) => d.spec_attributes ?? {}
   const describe = (d: DemandLineRow) => {
-    const a = d.spec_attributes ?? {}
+    const a = attrs(d)
     return `${String(a.type_query ?? '')} ${String(a.size ?? '')}${String(a.denominator ?? '').replace('$/', ' ')}`.trim()
   }
 
   return (
     <div style={{ ...card, marginTop: 18 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <h3 style={{ margin: 0, fontSize: 13, textTransform: 'uppercase', letterSpacing: '.06em', color: '#6b7280' }}>Demand board — {PROJECT}</h3>
+        <h3 style={{ margin: 0, fontSize: 13, textTransform: 'uppercase', letterSpacing: '.06em', color: '#6b7280' }}>Demand board — {project}</h3>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
           <select value={scope} onChange={(e) => setScope(e.target.value)} style={{ ...field, width: 'auto', padding: '5px 8px' }}>
             <option value="project">project</option><option value="building">building</option><option value="system">system</option>
@@ -162,35 +175,43 @@ function DemandBoard() {
             </tr>
           </thead>
           <tbody>
-            {lines.map((d) => (
-              <Fragment key={d.id}>
-                <tr style={{ borderTop: '1px solid #eef0f3' }}>
-                  <td style={{ padding: '7px 6px' }}>
-                    {d.state === 'drafted' && <input type="checkbox" checked={selected.includes(d.id)} onChange={() => toggle(d.id)} />}
-                  </td>
-                  <td style={{ padding: '7px 6px' }}>{describe(d) || '—'}</td>
-                  <td style={{ padding: '7px 6px', textAlign: 'right' }}>{d.qty}</td>
-                  <td style={{ padding: '7px 6px', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{money(d.rom_unit_price)}</td>
-                  <td style={{ padding: '7px 6px' }}>
-                    <span style={{ fontSize: 11, fontWeight: 600, color: '#fff', background: STATE_COLOR[d.state] ?? '#6b7280', borderRadius: 999, padding: '2px 8px' }}>{d.state}</span>
-                  </td>
-                  <td style={{ padding: '7px 6px', textAlign: 'right' }}>
-                    {(d.state === 'frozen' || d.state === 'matched') && (
-                      <button onClick={() => setExpanded(expanded === d.id ? null : d.id)} style={{ border: '1px solid #c9ccd1', background: '#fff', borderRadius: 6, padding: '3px 10px', fontSize: 12, cursor: 'pointer' }}>
-                        {expanded === d.id ? 'Hide' : 'Source ▸'}
-                      </button>
-                    )}
-                  </td>
-                </tr>
-                {expanded === d.id && (
-                  <tr>
-                    <td colSpan={6} style={{ background: '#fafbfc', padding: '12px 10px', borderTop: '1px solid #eef0f3' }}>
-                      <SourcingPanel demandLineId={d.id} state={d.state} />
+            {lines.map((d) => {
+              const a = attrs(d)
+              return (
+                <Fragment key={d.id}>
+                  <tr style={{ borderTop: '1px solid #eef0f3' }}>
+                    <td style={{ padding: '7px 6px' }}>
+                      {d.state === 'drafted' && <input type="checkbox" checked={selected.includes(d.id)} onChange={() => toggle(d.id)} />}
+                    </td>
+                    <td style={{ padding: '7px 6px' }}>{describe(d) || '—'}</td>
+                    <td style={{ padding: '7px 6px', textAlign: 'right' }}>{d.qty}</td>
+                    <td style={{ padding: '7px 6px', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{money(d.rom_unit_price)}</td>
+                    <td style={{ padding: '7px 6px' }}>
+                      <span style={{ fontSize: 11, fontWeight: 600, color: '#fff', background: STATE_COLOR[d.state] ?? '#6b7280', borderRadius: 999, padding: '2px 8px' }}>{d.state}</span>
+                    </td>
+                    <td style={{ padding: '7px 6px', textAlign: 'right', whiteSpace: 'nowrap' }}>
+                      {(d.state === 'frozen' || d.state === 'matched') && (
+                        <button onClick={() => setExpanded(expanded === d.id ? null : d.id)} style={{ border: '1px solid #c9ccd1', background: '#fff', borderRadius: 6, padding: '3px 10px', fontSize: 12, cursor: 'pointer', marginRight: 6 }}>
+                          {expanded === d.id ? 'Hide' : 'Source ▸'}
+                        </button>
+                      )}
+                      {(d.state === 'frozen' || d.state === 'matched') && (
+                        <button onClick={() => thawM.mutate(d.id)} disabled={thawM.isPending} style={{ border: '1px solid #b23a3a', background: '#fff', color: '#b23a3a', borderRadius: 6, padding: '3px 10px', fontSize: 12, cursor: 'pointer' }}>
+                          Thaw
+                        </button>
+                      )}
                     </td>
                   </tr>
-                )}
-              </Fragment>
-            ))}
+                  {expanded === d.id && (
+                    <tr>
+                      <td colSpan={6} style={{ background: '#fafbfc', padding: '12px 10px', borderTop: '1px solid #eef0f3' }}>
+                        <SourcingPanel demandLineId={d.id} state={d.state} denominator={String(a.denominator ?? '$/unit')} size={Number(a.size ?? 1)} />
+                      </td>
+                    </tr>
+                  )}
+                </Fragment>
+              )
+            })}
           </tbody>
         </table>
       )}
@@ -198,7 +219,7 @@ function DemandBoard() {
   )
 }
 
-function SourcingPanel({ demandLineId, state }: { demandLineId: string; state: string }) {
+function SourcingPanel({ demandLineId, state, denominator, size }: { demandLineId: string; state: string; denominator: string; size: number }) {
   const qc = useQueryClient()
   const [vendor, setVendor] = useState('')
   const [unit, setUnit] = useState<number | ''>('')
@@ -209,7 +230,7 @@ function SourcingPanel({ demandLineId, state }: { demandLineId: string; state: s
   const awarded = state === 'matched'
 
   const addM = useMutation({
-    mutationFn: () => apiPost(`/demand-lines/${demandLineId}/quotes`, { vendor, unit_price: Number(unit), lead_time_weeks: lead === '' ? null : Number(lead) }),
+    mutationFn: () => apiPost(`/demand-lines/${demandLineId}/quotes`, { vendor, unit_price: Number(unit), lead_time_weeks: lead === '' ? null : Number(lead), denominator, size }),
     onSuccess: () => { setVendor(''); setUnit(''); setLead(''); qc.invalidateQueries({ queryKey: ['quotes', demandLineId] }) },
   })
   const awardM = useMutation({
@@ -217,12 +238,13 @@ function SourcingPanel({ demandLineId, state }: { demandLineId: string; state: s
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['quotes', demandLineId] }); qc.invalidateQueries({ queryKey: ['demand-lines'] }) },
   })
 
+  const norm = (p: number) => (size ? p / size : p)
+
   return (
     <div>
       <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '.05em', color: '#6b7280', marginBottom: 6 }}>
-        Sourcing {awarded && '· awarded'}
+        Sourcing {awarded && '· awarded'} · leveled per {denominator}
       </div>
-
       {!awarded && (
         <div style={{ display: 'flex', gap: 8, marginBottom: 10, flexWrap: 'wrap', alignItems: 'center' }}>
           <input style={{ ...smallInput, width: 140 }} placeholder="Vendor" value={vendor} onChange={(e) => setVendor(e.target.value)} />
@@ -231,7 +253,6 @@ function SourcingPanel({ demandLineId, state }: { demandLineId: string; state: s
           <button onClick={() => addM.mutate()} disabled={!vendor || unit === '' || addM.isPending} style={{ padding: '6px 12px', background: '#1a1a1a', color: '#fff', border: 'none', borderRadius: 6, fontSize: 12.5, cursor: 'pointer' }}>Add quote</button>
         </div>
       )}
-
       {quotes.length === 0 && <div style={{ color: '#6b7280', fontSize: 12.5 }}>No quotes yet.</div>}
       {quotes.length > 0 && (
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5 }}>
@@ -239,6 +260,7 @@ function SourcingPanel({ demandLineId, state }: { demandLineId: string; state: s
             <tr style={{ color: '#6b7280', fontSize: 11 }}>
               <th style={{ textAlign: 'left', padding: '4px 6px' }}>Vendor</th>
               <th style={{ textAlign: 'right', padding: '4px 6px' }}>Unit price</th>
+              <th style={{ textAlign: 'right', padding: '4px 6px' }}>Normalized ({denominator})</th>
               <th style={{ textAlign: 'right', padding: '4px 6px' }}>Lead (wk)</th>
               <th style={{ textAlign: 'right', padding: '4px 6px' }}></th>
             </tr>
@@ -248,6 +270,7 @@ function SourcingPanel({ demandLineId, state }: { demandLineId: string; state: s
               <tr key={qt.id} style={{ borderTop: '1px solid #eef0f3', background: qt.state === 'selected' ? '#eef7f0' : 'transparent' }}>
                 <td style={{ padding: '5px 6px' }}>{qt.vendor}{i === 0 && !awarded && <span style={{ color: '#2f6f4f', fontSize: 11 }}> · lowest</span>}{qt.state === 'selected' && <span style={{ color: '#2f6f4f', fontSize: 11 }}> · awarded</span>}</td>
                 <td style={{ padding: '5px 6px', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{money(qt.unit_price)}</td>
+                <td style={{ padding: '5px 6px', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{money(norm(qt.unit_price))}</td>
                 <td style={{ padding: '5px 6px', textAlign: 'right' }}>{qt.lead_time_weeks ?? '—'}</td>
                 <td style={{ padding: '5px 6px', textAlign: 'right' }}>
                   {!awarded && <button onClick={() => awardM.mutate(qt.id)} disabled={awardM.isPending} style={{ border: '1px solid #2f6f4f', background: '#fff', color: '#2f6f4f', borderRadius: 6, padding: '2px 10px', fontSize: 12, cursor: 'pointer' }}>Award</button>}

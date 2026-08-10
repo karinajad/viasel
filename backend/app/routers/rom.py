@@ -2,10 +2,11 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
 from app.db import get_session
+from app.deps import require_token
 from app.schemas.rom import RomBand, RomPriceRequest
 from app.services.rom import price
 
-router = APIRouter(prefix="/rom", tags=["rom"])
+router = APIRouter(prefix="/rom", tags=["rom"], dependencies=[Depends(require_token)])
 
 
 @router.post("/price", response_model=RomBand)
