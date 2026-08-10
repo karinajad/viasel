@@ -125,6 +125,11 @@ function LocationEditor({ projectId }: { projectId: string }) {
     mutationFn: () => apiPost(`/projects/${projectId}/locations`, { code, kind, label: labelText || null }),
     onSuccess: () => { setCode(''); setLabelText(''); qc.invalidateQueries({ queryKey: ['locations', projectId] }) },
   })
+  // areas nest under the building whose code is the leading match (longest wins)
+  const buildings = [...locs].filter((l) => l.kind === 'building').sort((a, b) => b.code.length - a.code.length)
+  const areas = locs.filter((l) => l.kind === 'area')
+  const parentOf = (a: ProjectLocation) => buildings.find((b) => a.code === b.code || a.code.startsWith(b.code))
+  const orphans = areas.filter((a) => !parentOf(a))
   return (
     <div>
       <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 10 }}>
@@ -135,10 +140,22 @@ function LocationEditor({ projectId }: { projectId: string }) {
       </div>
       {locs.length === 0 && <div style={{ color: 'var(--mut)', fontSize: 12.5 }}>No codes yet.</div>}
       {locs.length > 0 && (
-        <table>
-          <thead><tr><th>Code</th><th>Kind</th><th>Label</th></tr></thead>
-          <tbody>{locs.map((l) => <tr key={l.id}><td>{l.code}</td><td>{l.kind}</td><td>{l.label ?? '—'}</td></tr>)}</tbody>
-        </table>
+        <div style={{ fontSize: 13 }}>
+          {buildings.map((b) => (
+            <div key={b.id} style={{ marginBottom: 6 }}>
+              <div><strong>{b.code}</strong> <span style={{ color: 'var(--mut)' }}>building{b.label ? ` · ${b.label}` : ''}</span></div>
+              {areas.filter((a) => parentOf(a)?.id === b.id).map((a) => (
+                <div key={a.id} style={{ marginLeft: 16, color: '#444' }}>↳ {a.code} <span style={{ color: 'var(--mut)' }}>area{a.label ? ` · ${a.label}` : ''}</span></div>
+              ))}
+            </div>
+          ))}
+          {orphans.length > 0 && (
+            <div style={{ marginTop: 6 }}>
+              <span style={{ color: 'var(--mut)', fontStyle: 'italic' }}>unassigned areas (no matching building code)</span>
+              {orphans.map((a) => <div key={a.id} style={{ marginLeft: 16, color: '#444' }}>↳ {a.code}{a.label ? ` · ${a.label}` : ''}</div>)}
+            </div>
+          )}
+        </div>
       )}
     </div>
   )
