@@ -23,6 +23,9 @@ extend-exclude = ["database/migrations", ".venv"]
 [tool.ruff.lint.per-file-ignores]
 "app/models.py" = ["RUF012"]  # SQLAlchemy __table_args__ dict is idiomatic
 
+[tool.ruff.lint.flake8-bugbear]
+extend-immutable-calls = ["fastapi.Depends", "fastapi.Query", "fastapi.Path"]
+
 [tool.mypy]
 python_version = "3.12"
 ignore_missing_imports = true

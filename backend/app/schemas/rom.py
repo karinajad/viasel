@@ -1,6 +1,16 @@
 from pydantic import BaseModel
 
 
+class RomPriceRequest(BaseModel):
+    type_query: str
+    denominator: str
+    size: float
+    qty: int = 1
+    freight_unit: float = 0.0
+    tariff_pct: float = 0.0
+    escalation_pct: float = 0.0
+
+
 class RomBand(BaseModel):
     """A ROM price band — a byproduct of the executed record, not a separate estimate."""
 
