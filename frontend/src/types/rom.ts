@@ -48,6 +48,48 @@ export interface RomPriceRequest {
   qty: number
 }
 
+export interface RomBatchLine {
+  type_query: string
+  denominator: string
+  size: number
+  qty: number
+}
+
+export interface RomPriceBatchRequest {
+  lines: RomBatchLine[]
+  tariff_pct?: number
+  escalation_pct?: number
+}
+
+export interface RomRollup {
+  line_count: number
+  priced_count: number
+  unpriced_count: number
+  total_qty: number
+  total_low: number
+  total_mid: number
+  total_high: number
+  confidence_tier: 'high' | 'medium' | 'low' | 'none'
+  tier_counts: Record<string, number>
+}
+
+export interface RomPriceBatchResponse {
+  lines: RomBand[]
+  rollup: RomRollup
+}
+
+export interface DemandLineCreate {
+  project_id: string
+  qty: number
+  equipment_type_id: string | null
+  spec_attributes: Record<string, unknown>
+  target_building: string | null
+  target_area: string | null
+  rom_unit_price: number | null
+  rom_confidence: string | null
+  rom_comparables_count: number | null
+}
+
 export interface RomBand {
   type_query: string
   denominator: string

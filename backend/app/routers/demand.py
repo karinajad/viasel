@@ -8,6 +8,7 @@ from app.db import get_session
 from app.deps import require_token
 from app.models import DemandLine, EquipmentType
 from app.schemas.demand import (
+    DemandLineBatchCreate,
     DemandLineCreate,
     DemandLineRead,
     EquipmentTypeRead,
@@ -36,6 +37,19 @@ def create_demand_line(
     session.commit()
     session.refresh(dl)
     return dl
+
+
+@router.post("/demand-lines/batch", response_model=list[DemandLineRead], status_code=201)
+def create_demand_lines(
+    body: DemandLineBatchCreate, session: Session = Depends(get_session)
+) -> list[DemandLine]:
+    """Save a whole line-item list as drafted demand — all of it or none of it."""
+    dls = [DemandLine(**line.model_dump()) for line in body.lines]
+    session.add_all(dls)
+    session.commit()
+    for dl in dls:
+        session.refresh(dl)
+    return dls
 
 
 @router.get("/demand-lines", response_model=list[DemandLineRead])

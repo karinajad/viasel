@@ -4,15 +4,23 @@ Normalization is the mechanism: prices are compared per natural denominator
 ($/kVA, $/ton, $/kW ...), so any size can be priced from all history of that type.
 The band's spread IS the real vendor spread; confidence falls out of the comparable
 count and whether the comparables are executed vs. proposal vs. ROM.
+
+One line or a whole line-item list prices the same way: `price_many` reuses one
+corpus query per distinct (type, denominator), then `rollup` totals the bands.
 """
 
+from collections import Counter
+from collections.abc import Sequence
 from statistics import median
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models import ExecutedScopeLine
-from app.schemas.rom import RomBand
+from app.schemas.rom import RomBand, RomBatchLine, RomRollup
+
+# weakest → strongest; a total is only as good as its weakest input
+TIER_ORDER = ("none", "low", "medium", "high")
 
 
 def _f(x: object, default: float = 0.0) -> float:
@@ -29,18 +37,9 @@ def _all_in_per_denom(r: ExecutedScopeLine) -> float:
     return reported / size
 
 
-def price(
-    session: Session,
-    type_query: str,
-    denominator: str,
-    size: float,
-    qty: int,
-    *,
-    freight_unit: float = 0.0,
-    tariff_pct: float = 0.0,
-    escalation_pct: float = 0.0,
-) -> RomBand:
-    rows = list(
+def _comparables(session: Session, type_query: str, denominator: str) -> list[ExecutedScopeLine]:
+    """Every executed line of this type priced in this denominator."""
+    return list(
         session.scalars(
             select(ExecutedScopeLine).where(
                 ExecutedScopeLine.etype.ilike(f"%{type_query}%"),
@@ -50,6 +49,20 @@ def price(
             )
         )
     )
+
+
+def _band(
+    rows: Sequence[ExecutedScopeLine],
+    type_query: str,
+    denominator: str,
+    size: float,
+    qty: int,
+    *,
+    freight_unit: float = 0.0,
+    tariff_pct: float = 0.0,
+    escalation_pct: float = 0.0,
+) -> RomBand:
+    """Turn a corpus slice into a band for one requirement (no DB access)."""
 
     def status_is(r: ExecutedScopeLine, key: str) -> bool:
         return key in (r.status or "").lower()
@@ -103,4 +116,78 @@ def price(
         layers=layers,
         note=("comparables are proposals/ROM, not executed — treat as low confidence"
               if fallback else None),
+    )
+
+
+def price(
+    session: Session,
+    type_query: str,
+    denominator: str,
+    size: float,
+    qty: int,
+    *,
+    freight_unit: float = 0.0,
+    tariff_pct: float = 0.0,
+    escalation_pct: float = 0.0,
+) -> RomBand:
+    return _band(
+        _comparables(session, type_query, denominator),
+        type_query, denominator, size, qty,
+        freight_unit=freight_unit, tariff_pct=tariff_pct, escalation_pct=escalation_pct,
+    )
+
+
+def price_many(
+    session: Session,
+    lines: Sequence[RomBatchLine],
+    *,
+    freight_unit: float = 0.0,
+    tariff_pct: float = 0.0,
+    escalation_pct: float = 0.0,
+) -> list[RomBand]:
+    """Price a line-item list. Returns bands in request order, one per line.
+
+    Tariff and escalation are project-level assumptions and apply to every line;
+    freight is per-unit and type-specific, so a line may override it.
+    """
+    corpus: dict[tuple[str, str], list[ExecutedScopeLine]] = {}
+    bands = []
+    for line in lines:
+        key = (line.type_query, line.denominator)
+        if key not in corpus:
+            corpus[key] = _comparables(session, *key)
+        bands.append(
+            _band(
+                corpus[key], line.type_query, line.denominator, line.size, line.qty,
+                freight_unit=freight_unit if line.freight_unit is None else line.freight_unit,
+                tariff_pct=tariff_pct, escalation_pct=escalation_pct,
+            )
+        )
+    return bands
+
+
+def rollup(bands: Sequence[RomBand]) -> RomRollup:
+    """Total a list of bands into the work-in-progress project ROM.
+
+    Unpriced lines (no comparables) contribute nothing to the totals and are counted
+    separately — a total that quietly skips lines is worse than one that says so.
+    """
+    priced = [b for b in bands if b.unit_mid is not None]
+    tier_counts = Counter(b.confidence_tier for b in bands)
+
+    def total(attr: str) -> float:
+        return round(sum(float(getattr(b, attr) or 0.0) * b.qty for b in priced), 2)
+
+    return RomRollup(
+        line_count=len(bands),
+        priced_count=len(priced),
+        unpriced_count=len(bands) - len(priced),
+        total_qty=sum(b.qty for b in bands),
+        total_low=total("unit_low"),
+        total_mid=total("unit_mid"),
+        total_high=total("unit_high"),
+        confidence_tier=(
+            min((b.confidence_tier for b in bands), key=TIER_ORDER.index) if bands else "none"
+        ),
+        tier_counts=dict(tier_counts),
     )

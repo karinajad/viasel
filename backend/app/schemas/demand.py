@@ -1,7 +1,7 @@
 import uuid
 from datetime import date, datetime
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class EquipmentTypeRead(BaseModel):
@@ -26,6 +26,12 @@ class DemandLineCreate(BaseModel):
     rom_unit_price: float | None = None
     rom_confidence: str | None = None
     rom_comparables_count: int | None = None
+
+
+class DemandLineBatchCreate(BaseModel):
+    """The line-item grid saved in one shot — every row becomes drafted demand."""
+
+    lines: list[DemandLineCreate] = Field(min_length=1, max_length=500)
 
 
 class DemandLineRead(BaseModel):
