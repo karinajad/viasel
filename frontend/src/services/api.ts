@@ -16,3 +16,18 @@ export async function apiPost<T>(path: string, body: unknown): Promise<T> {
   if (!res.ok) throw new Error(`POST ${path} failed: ${res.status}`)
   return res.json() as Promise<T>
 }
+
+export async function apiPatch<T>(path: string, body: unknown): Promise<T> {
+  const res = await fetch(`${API_URL}${path}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', 'X-API-Key': API_TOKEN },
+    body: JSON.stringify(body),
+  })
+  if (!res.ok) throw new Error(`PATCH ${path} failed: ${res.status}`)
+  return res.json() as Promise<T>
+}
+
+export async function apiDelete(path: string): Promise<void> {
+  const res = await fetch(`${API_URL}${path}`, { method: 'DELETE', headers: { 'X-API-Key': API_TOKEN } })
+  if (!res.ok) throw new Error(`DELETE ${path} failed: ${res.status}`)
+}

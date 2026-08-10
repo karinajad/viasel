@@ -6,7 +6,7 @@ Physics-only equipment types + executed price corpus + demand lines + freeze/tha
 import uuid
 from datetime import date, datetime
 
-from sqlalchemy import Date, DateTime, ForeignKey, Integer, Numeric, String, func, text
+from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Integer, Numeric, String, func, text
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -162,6 +162,7 @@ class Project(Base):
 
     id: Mapped[uuid.UUID] = _pk()
     name: Mapped[str] = mapped_column(String, unique=True, nullable=False)
+    legend_frozen: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
@@ -176,4 +177,19 @@ class ProjectLocation(Base):
     code: Mapped[str] = mapped_column(String, nullable=False)  # e.g. C1, DH3
     kind: Mapped[str] = mapped_column(String, default="building", server_default=text("'building'"), nullable=False)
     label: Mapped[str | None] = mapped_column(String)
+    active: Mapped[bool] = mapped_column(Boolean, default=True, server_default=text("true"), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class LegendEvent(Base):
+    """Permanent audit of a project's legend freeze/thaw — the crosswalk history."""
+
+    __tablename__ = "legend_event"
+    __table_args__ = {"schema": SCHEMA}
+
+    id: Mapped[uuid.UUID] = _pk()
+    project_id: Mapped[uuid.UUID] = mapped_column(ForeignKey(f"{SCHEMA}.project.id"), nullable=False)
+    action: Mapped[str] = mapped_column(String, nullable=False)  # freeze | thaw
+    reason: Mapped[str | None] = mapped_column(String)
+    actor: Mapped[str | None] = mapped_column(String)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
