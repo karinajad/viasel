@@ -78,8 +78,10 @@ class DemandLine(Base):
     rom_unit_price: Mapped[float | None] = mapped_column(Numeric)
     rom_confidence: Mapped[str | None] = mapped_column(String)
     rom_comparables_count: Mapped[int | None] = mapped_column(Integer)
-    revision: Mapped[int] = mapped_column(Integer, server_default=text("1"), nullable=False)
-    state: Mapped[str] = mapped_column(String, server_default=text("'drafted'"), nullable=False)
+    revision: Mapped[int] = mapped_column(Integer, default=1, server_default=text("1"), nullable=False)
+    state: Mapped[str] = mapped_column(
+        String, default="drafted", server_default=text("'drafted'"), nullable=False
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
