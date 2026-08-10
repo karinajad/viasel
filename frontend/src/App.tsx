@@ -3,121 +3,163 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { apiGet, apiPost } from './services/api'
 import type { DemandLineRow, EquipmentType, Quote, RomBand, RomPriceRequest } from './types/rom'
 
-const money = (n: number | null): string =>
-  n == null ? '—' : '$' + Math.round(n).toLocaleString()
+const money = (n: number | null): string => (n == null ? '—' : '$' + Math.round(n).toLocaleString())
+const parseSize = (s: string): number | null => { const m = s.match(/(\d+(?:\.\d+)?)/); return m ? Number(m[1]) : null }
+const TIER: Record<string, string> = { high: '#2f6f4f', medium: '#b7791f', low: '#b23a3a', none: '#6b7280' }
+const STATE: Record<string, string> = { drafted: '#6b7280', frozen: '#2f6f4f', thawed: '#b23a3a', matching: '#b7791f', matched: '#2f6f4f', satisfied: '#2f6f4f', cancelled: '#9aa0a6' }
 
-const parseSize = (s: string): number | null => {
-  const m = s.match(/(\d+(?:\.\d+)?)/)
-  return m ? Number(m[1]) : null
-}
+const STOPS = [
+  ['DEMAND', 1], ['SOURCING', 1], ['AGREEMENT', 0], ['PRODUCTION', 0],
+  ['CUSTODY', 0], ['HANDOVER', 0], ['OPERATION', 0], ['DISPOSITION', 0],
+] as const
+const TABS = [
+  { k: 'design', label: 'Design & Sourcing', live: true },
+  { k: 'cost', label: 'Cost' }, { k: 'logistics', label: 'Logistics' },
+  { k: 'vendor', label: 'Vendor' }, { k: 'ops', label: 'Operations' },
+  { k: 'disposition', label: 'Disposition' }, { k: 'program', label: 'Program' },
+]
 
-const TIER_COLOR: Record<string, string> = { high: '#2f6f4f', medium: '#b7791f', low: '#b23a3a', none: '#6b7280' }
-const STATE_COLOR: Record<string, string> = {
-  drafted: '#6b7280', frozen: '#2f6f4f', thawed: '#b23a3a',
-  matching: '#b7791f', matched: '#2f6f4f', satisfied: '#2f6f4f', cancelled: '#9aa0a6',
-}
-
-const card: React.CSSProperties = { border: '1px solid #c9ccd1', borderRadius: 12, padding: 18 }
-const label: React.CSSProperties = { fontSize: 12, color: '#6b7280', margin: '10px 0 4px' }
-const field: React.CSSProperties = { width: '100%', padding: '9px 11px', border: '1px solid #c9ccd1', borderRadius: 7, fontSize: 14, background: '#fff' }
-const chip: React.CSSProperties = { background: '#eef0f3', padding: '2px 8px', borderRadius: 999 }
-const smallInput: React.CSSProperties = { padding: '6px 8px', border: '1px solid #c9ccd1', borderRadius: 6, fontSize: 13 }
-
-function App() {
-  const qc = useQueryClient()
+export default function App() {
   const [project, setProject] = useState('DEMO')
+  const [tab, setTab] = useState('design')
 
+  return (
+    <div className="wrap">
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+        <h1>Viasel</h1>
+        <label style={{ fontSize: 12, color: 'var(--mut)' }}>Project&nbsp;
+          <input className="si" style={{ width: 120 }} value={project} onChange={(e) => setProject(e.target.value)} />
+        </label>
+      </div>
+      <p className="sub">One record per unit — priced from history, frozen, sourced, awarded.</p>
+
+      <div className="road">
+        {STOPS.map(([name, done]) => (
+          <div key={name} className={`stop${done ? ' here' : ''}`}><span className="dot" /><b>{name}</b></div>
+        ))}
+      </div>
+      <p className="roadnote">Each unit travels this road. The green stops are live; the rest are the roadmap.</p>
+
+      <div className="tabs">
+        {TABS.map((t) => (
+          <div key={t.k} className={`tab${tab === t.k ? ' active' : ''}`} onClick={() => setTab(t.k)}>
+            {t.live && <span className="star">★</span>}{t.label}
+          </div>
+        ))}
+      </div>
+
+      {tab === 'design' && <DesignFace project={project} />}
+      {tab === 'cost' && <Preview title="Cost / Finance — Reconciliation" phase="Phase 2 · the wedge"
+        body="Committed vs. actual and exposure compute themselves and drill to the unit."
+        mock="[ committed-vs-actual by cost code · every row drills to a unit ]"
+        note="Catches the $1.279M gap across 52 executed POs/COs that took weeks to find by hand." />}
+      {tab === 'logistics' && <Preview title="Logistics / Custody" phase="Phase 3"
+        body="Every unit's location — factory · transit · warehouse · staged · installed — with exceptions flagged."
+        mock="[ where-is-everything board · phone scan: receive · condition · zone ]" />}
+      {tab === 'vendor' && <Preview title="Vendor portal" phase="later"
+        body="Report production stage, upload test reports & serials, mark shipped."
+        mock="[ your scope · report status ]" note="Submitting = getting paid faster; ends four people chasing status." />}
+      {tab === 'ops' && <Preview title="Operations — Live Health" phase="Phase 4"
+        body="Each unit green/yellow/red vs. its own day-zero baseline; one plain-English digest a day."
+        mock="[ fleet health · '3 units drifting — UPS-07 battery trending warm' ]" />}
+      {tab === 'disposition' && <Preview title="Disposition — the passport" phase="Phase 4"
+        body="Scan a unit → its whole life on one page. Transfer hands the record to the next owner."
+        mock="[ biography: spec · price · changes · storage · service · health ]" />}
+      {tab === 'program' && <Preview title="Program — the rollup" phase="later"
+        body="Across projects: covered · pending procurement · at risk · surplus vs. shortfall — every number drills to a line."
+        mock="[ demand fulfillment by freeze set · net change by type ]" />}
+    </div>
+  )
+}
+
+function Preview({ title, phase, body, mock, note }: { title: string; phase: string; body: string; mock: string; note?: string }) {
+  return (
+    <div>
+      <div className="headline"><h2>{title}</h2><span className="pill">{phase}</span></div>
+      <p className="desc">{body}</p>
+      <div className="card"><div className="ph">{mock}</div>{note && <div className="note">{note}</div>}</div>
+    </div>
+  )
+}
+
+function DesignFace({ project }: { project: string }) {
+  const qc = useQueryClient()
   const typesQ = useQuery({ queryKey: ['equipment-types'], queryFn: () => apiGet<EquipmentType[]>('/equipment-types') })
   const types = typesQ.data ?? []
   const unitCodes = [...new Set(types.map((t) => t.unit_type_code))].sort()
-  const subsFor = (code: string) => types.filter((t) => t.unit_type_code === code && t.sub_type).map((t) => t.sub_type as string)
-  const rowFor = (code: string, sub: string) =>
-    types.find((t) => t.unit_type_code === code && (sub ? t.sub_type === sub : true)) ?? types.find((t) => t.unit_type_code === code)
+  const subsFor = (c: string) => types.filter((t) => t.unit_type_code === c && t.sub_type).map((t) => t.sub_type as string)
+  const rowFor = (c: string, s: string) => types.find((t) => t.unit_type_code === c && (s ? t.sub_type === s : true)) ?? types.find((t) => t.unit_type_code === c)
 
   const [type, setType] = useState('Padmount Transformer')
   const [sub, setSub] = useState('')
   const [qty, setQty] = useState(12)
-
   const subs = subsFor(type)
-  const effectiveSub = sub || subs[0] || ''
-  const size = parseSize(effectiveSub) ?? 1
-  const typeRow = rowFor(type, effectiveSub)
-  const denominator = typeRow?.natural_denominator ?? '$/unit'
+  const effSub = sub || subs[0] || ''
+  const size = parseSize(effSub) ?? 1
+  const row = rowFor(type, effSub)
+  const denom = row?.natural_denominator ?? '$/unit'
 
-  const priceM = useMutation({ mutationFn: (req: RomPriceRequest) => apiPost<RomBand>('/rom/price', req) })
+  const priceM = useMutation({ mutationFn: (r: RomPriceRequest) => apiPost<RomBand>('/rom/price', r) })
   const band = priceM.data
-  const price = () => priceM.mutate({ type_query: type, denominator, size, qty: Number(qty) })
-
   const saveM = useMutation({
-    mutationFn: () =>
-      apiPost<DemandLineRow>('/demand-lines', {
-        project_id: project, qty: Number(qty), equipment_type_id: typeRow?.id ?? null,
-        spec_attributes: { type_query: type, denominator, size, sub: effectiveSub },
-        rom_unit_price: band?.unit_mid ?? null, rom_confidence: band?.confidence_tier ?? null,
-        rom_comparables_count: band?.comparables_count ?? null,
-      }),
+    mutationFn: () => apiPost<DemandLineRow>('/demand-lines', {
+      project_id: project, qty: Number(qty), equipment_type_id: row?.id ?? null,
+      spec_attributes: { type_query: type, denominator: denom, size, sub: effSub },
+      rom_unit_price: band?.unit_mid ?? null, rom_confidence: band?.confidence_tier ?? null, rom_comparables_count: band?.comparables_count ?? null,
+    }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['demand-lines'] }),
   })
 
   return (
-    <main style={{ fontFamily: 'system-ui, sans-serif', color: '#1a1a1a', maxWidth: 960, margin: '0 auto', padding: '2.5rem 1.5rem' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
-        <h1 style={{ marginBottom: 2 }}>Viasel — Design &amp; Sourcing</h1>
-        <label style={{ fontSize: 12, color: '#6b7280' }}>
-          Project&nbsp;
-          <input value={project} onChange={(e) => setProject(e.target.value)} style={{ ...smallInput, width: 120 }} />
-        </label>
-      </div>
-      <p style={{ color: '#6b7280', marginTop: 0 }}>Price from history → save as demand → freeze → source & award.</p>
+    <div>
+      <div className="headline"><h2>Design &amp; Sourcing</h2><span className="pill live">LIVE · Supabase</span></div>
+      <p className="desc">Price → save as demand → freeze → source → award. Real, against the database.</p>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 18, marginTop: 14 }}>
-        <div style={card}>
-          <h3 style={{ marginTop: 0, fontSize: 13, textTransform: 'uppercase', letterSpacing: '.06em', color: '#6b7280' }}>Requirement</h3>
-          <div style={label}>Equipment type</div>
-          <select style={field} value={type} onChange={(e) => { setType(e.target.value); setSub('') }} disabled={typesQ.isLoading}>
+      <div className="two">
+        <div className="card">
+          <h4>① Requirement</h4>
+          <label>Equipment type</label>
+          <select className="fld" value={type} onChange={(e) => { setType(e.target.value); setSub('') }} disabled={typesQ.isLoading}>
             {typesQ.isLoading && <option>loading…</option>}
             {unitCodes.map((c) => <option key={c} value={c}>{c}</option>)}
           </select>
-          <div style={label}>Size / configuration</div>
-          <select style={field} value={effectiveSub} onChange={(e) => setSub(e.target.value)} disabled={subs.length === 0}>
+          <label>Size / configuration</label>
+          <select className="fld" value={effSub} onChange={(e) => setSub(e.target.value)} disabled={subs.length === 0}>
             {subs.length === 0 && <option value="">— none on record —</option>}
             {subs.map((s) => <option key={s} value={s}>{s}</option>)}
           </select>
-          <div style={label}>Quantity</div>
-          <input style={field} type="number" value={qty} onChange={(e) => setQty(Number(e.target.value))} />
-          <div style={{ marginTop: 12, fontSize: 12, color: '#6b7280', display: 'flex', gap: 14 }}>
-            <span>size <strong style={chip}>{size}</strong></span>
-            <span>denominator <strong style={chip}>{denominator}</strong></span>
+          <label>Quantity</label>
+          <input className="fld" type="number" value={qty} onChange={(e) => setQty(Number(e.target.value))} />
+          <div style={{ marginTop: 12, fontSize: 12, color: 'var(--mut)', display: 'flex', gap: 14 }}>
+            <span>size <strong className="chip">{size}</strong></span><span>denominator <strong className="chip">{denom}</strong></span>
           </div>
           <div style={{ fontSize: 11, color: '#9aa0a6', marginTop: 4 }}>size &amp; denominator come from the equipment — not typed</div>
-          <button onClick={price} disabled={priceM.isPending} style={{ marginTop: 16, width: '100%', padding: '10px', background: '#2f6f4f', color: '#fff', border: 'none', borderRadius: 8, fontSize: 14, cursor: 'pointer' }}>
+          <button className="btn pri" style={{ marginTop: 14, width: '100%' }} onClick={() => priceM.mutate({ type_query: type, denominator: denom, size, qty: Number(qty) })} disabled={priceM.isPending}>
             {priceM.isPending ? 'Pricing…' : 'Price it'}
           </button>
         </div>
 
-        <div style={card}>
-          <h3 style={{ marginTop: 0, fontSize: 13, textTransform: 'uppercase', letterSpacing: '.06em', color: '#6b7280' }}>Price band</h3>
-          {priceM.isError && <p style={{ color: '#b23a3a' }}>Couldn’t reach the API (backend on :8000, key set?).</p>}
-          {!band && !priceM.isError && <p style={{ color: '#6b7280' }}>Pick a type and hit “Price it”.</p>}
+        <div className="card">
+          <h4>② Price band — a byproduct of your history</h4>
+          {priceM.isError && <p style={{ color: 'var(--red)' }}>Couldn’t reach the API (backend on :8000, key set?).</p>}
+          {!band && !priceM.isError && <p style={{ color: 'var(--mut)' }}>Pick a type and hit “Price it”.</p>}
           {band && (
-            <>
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontVariantNumeric: 'tabular-nums' }}>
-                <span>{money(band.unit_low)}</span><strong style={{ fontSize: 22 }}>{money(band.unit_mid)}</strong><span>{money(band.unit_high)}</span>
-              </div>
-              <div style={{ height: 10, borderRadius: 6, background: 'linear-gradient(90deg,#e7efe9,#bcd8c6,#e7efe9)', border: '1px solid #c9ccd1', margin: '6px 0' }} />
-              <div style={{ fontSize: 12, color: '#6b7280' }}>per unit ({band.denominator}) · extended <strong>{money(band.extended_mid)}</strong> (×{band.qty})</div>
-              <div style={{ marginTop: 12, fontSize: 13 }}>Confidence: <strong style={{ color: TIER_COLOR[band.confidence_tier] }}>{band.confidence_tier}</strong> · {band.comparables_count} comparables</div>
-              {band.note && <p style={{ fontSize: 12.5, color: '#b7791f', marginTop: 10 }}>{band.note}</p>}
-              <button onClick={() => saveM.mutate()} disabled={saveM.isPending || band.unit_mid == null} style={{ marginTop: 14, width: '100%', padding: '9px', background: '#fff', color: '#1a1a1a', border: '1px solid #2f6f4f', borderRadius: 8, fontSize: 13, cursor: 'pointer' }}>
+            <div className="band">
+              <div className="nums"><span>{money(band.unit_low)}</span><span className="mid">{money(band.unit_mid)}</span><span>{money(band.unit_high)}</span></div>
+              <div className="track" />
+              <div style={{ fontSize: 12, color: 'var(--mut)' }}>per unit ({band.denominator}) · extended <strong>{money(band.extended_mid)}</strong> (×{band.qty})</div>
+              <div style={{ marginTop: 10, fontSize: 13 }}>Confidence: <strong style={{ color: TIER[band.confidence_tier] }}>{band.confidence_tier}</strong> · {band.comparables_count} comparables</div>
+              {band.note && <div className="note">{band.note}</div>}
+              <button className="btn" style={{ marginTop: 12, width: '100%', borderColor: 'var(--accent)', color: 'var(--accent)' }} onClick={() => saveM.mutate()} disabled={saveM.isPending || band.unit_mid == null}>
                 {saveM.isPending ? 'Saving…' : 'Save as demand line ▸'}
               </button>
-            </>
+            </div>
           )}
         </div>
       </div>
 
-      <DemandBoard project={project} />
-    </main>
+      <div style={{ marginTop: 16 }}><DemandBoard project={project} /></div>
+    </div>
   )
 }
 
@@ -126,92 +168,45 @@ function DemandBoard({ project }: { project: string }) {
   const [selected, setSelected] = useState<string[]>([])
   const [scope, setScope] = useState('project')
   const [expanded, setExpanded] = useState<string | null>(null)
-
   const q = useQuery({ queryKey: ['demand-lines', project], queryFn: () => apiGet<DemandLineRow[]>(`/demand-lines?project=${project}`) })
   const lines = q.data ?? []
-
   const invalidate = () => qc.invalidateQueries({ queryKey: ['demand-lines'] })
-  const freezeM = useMutation({
-    mutationFn: () => apiPost('/freeze', { line_ids: selected, project_id: project, scope, actor: 'web' }),
-    onSuccess: () => { setSelected([]); invalidate() },
-  })
-  const thawM = useMutation({
-    mutationFn: (id: string) => apiPost(`/demand-lines/${id}/thaw`, { reason: null }),
-    onSuccess: invalidate,
-  })
+  const freezeM = useMutation({ mutationFn: () => apiPost('/freeze', { line_ids: selected, project_id: project, scope, actor: 'web' }), onSuccess: () => { setSelected([]); invalidate() } })
+  const thawM = useMutation({ mutationFn: (id: string) => apiPost(`/demand-lines/${id}/thaw`, { reason: null }), onSuccess: invalidate })
   const toggle = (id: string) => setSelected((s) => (s.includes(id) ? s.filter((x) => x !== id) : [...s, id]))
-
   const attrs = (d: DemandLineRow) => d.spec_attributes ?? {}
-  const describe = (d: DemandLineRow) => {
-    const a = attrs(d)
-    return `${String(a.type_query ?? '')} ${String(a.size ?? '')}${String(a.denominator ?? '').replace('$/', ' ')}`.trim()
-  }
+  const describe = (d: DemandLineRow) => { const a = attrs(d); return `${String(a.type_query ?? '')} ${String(a.size ?? '')}${String(a.denominator ?? '').replace('$/', ' ')}`.trim() }
 
   return (
-    <div style={{ ...card, marginTop: 18 }}>
+    <div className="card">
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <h3 style={{ margin: 0, fontSize: 13, textTransform: 'uppercase', letterSpacing: '.06em', color: '#6b7280' }}>Demand board — {project}</h3>
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-          <select value={scope} onChange={(e) => setScope(e.target.value)} style={{ ...field, width: 'auto', padding: '5px 8px' }}>
-            <option value="project">project</option><option value="building">building</option><option value="system">system</option>
-          </select>
-          <button onClick={() => freezeM.mutate()} disabled={selected.length === 0 || freezeM.isPending} style={{ padding: '6px 14px', background: selected.length ? '#2f6f4f' : '#c9ccd1', color: '#fff', border: 'none', borderRadius: 8, fontSize: 13, cursor: selected.length ? 'pointer' : 'default' }}>
-            Freeze selected ({selected.length})
-          </button>
+        <h4 style={{ margin: 0 }}>③ Demand board</h4>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <select className="si" value={scope} onChange={(e) => setScope(e.target.value)}><option value="project">project</option><option value="building">building</option><option value="system">system</option></select>
+          <button className="btn pri sm" onClick={() => freezeM.mutate()} disabled={selected.length === 0 || freezeM.isPending}>Freeze selected ({selected.length})</button>
         </div>
       </div>
-
-      {lines.length === 0 && <p style={{ color: '#6b7280', fontSize: 13 }}>No demand yet — price a requirement above and save it.</p>}
+      {lines.length === 0 && <p style={{ color: 'var(--mut)', fontSize: 13 }}>No demand yet — price a requirement and save it.</p>}
       {lines.length > 0 && (
-        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, marginTop: 8 }}>
-          <thead>
-            <tr style={{ color: '#6b7280', fontSize: 11, textTransform: 'uppercase', letterSpacing: '.04em' }}>
-              <th style={{ textAlign: 'left', padding: '6px 6px', width: 28 }}></th>
-              <th style={{ textAlign: 'left', padding: '6px 6px' }}>Requirement</th>
-              <th style={{ textAlign: 'right', padding: '6px 6px' }}>Qty</th>
-              <th style={{ textAlign: 'right', padding: '6px 6px' }}>ROM / unit</th>
-              <th style={{ textAlign: 'left', padding: '6px 6px' }}>Status</th>
-              <th style={{ textAlign: 'right', padding: '6px 6px' }}></th>
-            </tr>
-          </thead>
+        <table style={{ marginTop: 8 }}>
+          <thead><tr><th style={{ width: 26 }} /><th>Requirement</th><th className="num">Qty</th><th className="num">ROM / unit</th><th>Status</th><th /></tr></thead>
           <tbody>
-            {lines.map((d) => {
-              const a = attrs(d)
-              return (
-                <Fragment key={d.id}>
-                  <tr style={{ borderTop: '1px solid #eef0f3' }}>
-                    <td style={{ padding: '7px 6px' }}>
-                      {d.state === 'drafted' && <input type="checkbox" checked={selected.includes(d.id)} onChange={() => toggle(d.id)} />}
-                    </td>
-                    <td style={{ padding: '7px 6px' }}>{describe(d) || '—'}</td>
-                    <td style={{ padding: '7px 6px', textAlign: 'right' }}>{d.qty}</td>
-                    <td style={{ padding: '7px 6px', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{money(d.rom_unit_price)}</td>
-                    <td style={{ padding: '7px 6px' }}>
-                      <span style={{ fontSize: 11, fontWeight: 600, color: '#fff', background: STATE_COLOR[d.state] ?? '#6b7280', borderRadius: 999, padding: '2px 8px' }}>{d.state}</span>
-                    </td>
-                    <td style={{ padding: '7px 6px', textAlign: 'right', whiteSpace: 'nowrap' }}>
-                      {(d.state === 'frozen' || d.state === 'matched') && (
-                        <button onClick={() => setExpanded(expanded === d.id ? null : d.id)} style={{ border: '1px solid #c9ccd1', background: '#fff', borderRadius: 6, padding: '3px 10px', fontSize: 12, cursor: 'pointer', marginRight: 6 }}>
-                          {expanded === d.id ? 'Hide' : 'Source ▸'}
-                        </button>
-                      )}
-                      {(d.state === 'frozen' || d.state === 'matched') && (
-                        <button onClick={() => thawM.mutate(d.id)} disabled={thawM.isPending} style={{ border: '1px solid #b23a3a', background: '#fff', color: '#b23a3a', borderRadius: 6, padding: '3px 10px', fontSize: 12, cursor: 'pointer' }}>
-                          Thaw
-                        </button>
-                      )}
-                    </td>
-                  </tr>
-                  {expanded === d.id && (
-                    <tr>
-                      <td colSpan={6} style={{ background: '#fafbfc', padding: '12px 10px', borderTop: '1px solid #eef0f3' }}>
-                        <SourcingPanel demandLineId={d.id} state={d.state} denominator={String(a.denominator ?? '$/unit')} size={Number(a.size ?? 1)} />
-                      </td>
-                    </tr>
-                  )}
-                </Fragment>
-              )
-            })}
+            {lines.map((d) => { const a = attrs(d); return (
+              <Fragment key={d.id}>
+                <tr>
+                  <td>{d.state === 'drafted' && <input type="checkbox" checked={selected.includes(d.id)} onChange={() => toggle(d.id)} />}</td>
+                  <td>{describe(d) || '—'}</td>
+                  <td className="num">{d.qty}</td>
+                  <td className="num">{money(d.rom_unit_price)}</td>
+                  <td><span className="st" style={{ background: STATE[d.state] ?? '#6b7280' }}>{d.state}</span></td>
+                  <td className="num" style={{ whiteSpace: 'nowrap' }}>
+                    {(d.state === 'frozen' || d.state === 'matched') && <button className="btn sm" style={{ marginRight: 6 }} onClick={() => setExpanded(expanded === d.id ? null : d.id)}>{expanded === d.id ? 'Hide' : 'Source ▸'}</button>}
+                    {(d.state === 'frozen' || d.state === 'matched') && <button className="btn sm danger" onClick={() => thawM.mutate(d.id)} disabled={thawM.isPending}>Thaw</button>}
+                  </td>
+                </tr>
+                {expanded === d.id && <tr><td colSpan={6} style={{ background: '#fafbfc' }}><SourcingPanel demandLineId={d.id} state={d.state} denominator={String(a.denominator ?? '$/unit')} size={Number(a.size ?? 1)} /></td></tr>}
+              </Fragment>
+            ) })}
           </tbody>
         </table>
       )}
@@ -224,57 +219,36 @@ function SourcingPanel({ demandLineId, state, denominator, size }: { demandLineI
   const [vendor, setVendor] = useState('')
   const [unit, setUnit] = useState<number | ''>('')
   const [lead, setLead] = useState<number | ''>('')
-
   const quotesQ = useQuery({ queryKey: ['quotes', demandLineId], queryFn: () => apiGet<Quote[]>(`/demand-lines/${demandLineId}/quotes`) })
   const quotes = quotesQ.data ?? []
   const awarded = state === 'matched'
-
-  const addM = useMutation({
-    mutationFn: () => apiPost(`/demand-lines/${demandLineId}/quotes`, { vendor, unit_price: Number(unit), lead_time_weeks: lead === '' ? null : Number(lead), denominator, size }),
-    onSuccess: () => { setVendor(''); setUnit(''); setLead(''); qc.invalidateQueries({ queryKey: ['quotes', demandLineId] }) },
-  })
-  const awardM = useMutation({
-    mutationFn: (quoteId: string) => apiPost(`/demand-lines/${demandLineId}/award`, { quote_id: quoteId }),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['quotes', demandLineId] }); qc.invalidateQueries({ queryKey: ['demand-lines'] }) },
-  })
-
+  const addM = useMutation({ mutationFn: () => apiPost(`/demand-lines/${demandLineId}/quotes`, { vendor, unit_price: Number(unit), lead_time_weeks: lead === '' ? null : Number(lead), denominator, size }), onSuccess: () => { setVendor(''); setUnit(''); setLead(''); qc.invalidateQueries({ queryKey: ['quotes', demandLineId] }) } })
+  const awardM = useMutation({ mutationFn: (id: string) => apiPost(`/demand-lines/${demandLineId}/award`, { quote_id: id }), onSuccess: () => { qc.invalidateQueries({ queryKey: ['quotes', demandLineId] }); qc.invalidateQueries({ queryKey: ['demand-lines'] }) } })
   const norm = (p: number) => (size ? p / size : p)
 
   return (
-    <div>
-      <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '.05em', color: '#6b7280', marginBottom: 6 }}>
-        Sourcing {awarded && '· awarded'} · leveled per {denominator}
-      </div>
+    <div style={{ padding: '6px 2px' }}>
+      <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '.05em', color: 'var(--mut)', marginBottom: 6 }}>Sourcing {awarded && '· awarded'} · leveled per {denominator}</div>
       {!awarded && (
-        <div style={{ display: 'flex', gap: 8, marginBottom: 10, flexWrap: 'wrap', alignItems: 'center' }}>
-          <input style={{ ...smallInput, width: 140 }} placeholder="Vendor" value={vendor} onChange={(e) => setVendor(e.target.value)} />
-          <input style={{ ...smallInput, width: 120 }} type="number" placeholder="Unit price" value={unit} onChange={(e) => setUnit(e.target.value === '' ? '' : Number(e.target.value))} />
-          <input style={{ ...smallInput, width: 100 }} type="number" placeholder="Lead (wk)" value={lead} onChange={(e) => setLead(e.target.value === '' ? '' : Number(e.target.value))} />
-          <button onClick={() => addM.mutate()} disabled={!vendor || unit === '' || addM.isPending} style={{ padding: '6px 12px', background: '#1a1a1a', color: '#fff', border: 'none', borderRadius: 6, fontSize: 12.5, cursor: 'pointer' }}>Add quote</button>
+        <div style={{ display: 'flex', gap: 8, marginBottom: 10, flexWrap: 'wrap' }}>
+          <input className="si" style={{ width: 140 }} placeholder="Vendor" value={vendor} onChange={(e) => setVendor(e.target.value)} />
+          <input className="si" style={{ width: 120 }} type="number" placeholder="Unit price" value={unit} onChange={(e) => setUnit(e.target.value === '' ? '' : Number(e.target.value))} />
+          <input className="si" style={{ width: 100 }} type="number" placeholder="Lead (wk)" value={lead} onChange={(e) => setLead(e.target.value === '' ? '' : Number(e.target.value))} />
+          <button className="btn sm" style={{ background: 'var(--ink)', color: '#fff', borderColor: 'var(--ink)' }} onClick={() => addM.mutate()} disabled={!vendor || unit === '' || addM.isPending}>Add quote</button>
         </div>
       )}
-      {quotes.length === 0 && <div style={{ color: '#6b7280', fontSize: 12.5 }}>No quotes yet.</div>}
+      {quotes.length === 0 && <div style={{ color: 'var(--mut)', fontSize: 12.5 }}>No quotes yet.</div>}
       {quotes.length > 0 && (
-        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5 }}>
-          <thead>
-            <tr style={{ color: '#6b7280', fontSize: 11 }}>
-              <th style={{ textAlign: 'left', padding: '4px 6px' }}>Vendor</th>
-              <th style={{ textAlign: 'right', padding: '4px 6px' }}>Unit price</th>
-              <th style={{ textAlign: 'right', padding: '4px 6px' }}>Normalized ({denominator})</th>
-              <th style={{ textAlign: 'right', padding: '4px 6px' }}>Lead (wk)</th>
-              <th style={{ textAlign: 'right', padding: '4px 6px' }}></th>
-            </tr>
-          </thead>
+        <table>
+          <thead><tr><th>Vendor</th><th className="num">Unit price</th><th className="num">Normalized ({denominator})</th><th className="num">Lead (wk)</th><th /></tr></thead>
           <tbody>
             {quotes.map((qt, i) => (
-              <tr key={qt.id} style={{ borderTop: '1px solid #eef0f3', background: qt.state === 'selected' ? '#eef7f0' : 'transparent' }}>
-                <td style={{ padding: '5px 6px' }}>{qt.vendor}{i === 0 && !awarded && <span style={{ color: '#2f6f4f', fontSize: 11 }}> · lowest</span>}{qt.state === 'selected' && <span style={{ color: '#2f6f4f', fontSize: 11 }}> · awarded</span>}</td>
-                <td style={{ padding: '5px 6px', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{money(qt.unit_price)}</td>
-                <td style={{ padding: '5px 6px', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{money(norm(qt.unit_price))}</td>
-                <td style={{ padding: '5px 6px', textAlign: 'right' }}>{qt.lead_time_weeks ?? '—'}</td>
-                <td style={{ padding: '5px 6px', textAlign: 'right' }}>
-                  {!awarded && <button onClick={() => awardM.mutate(qt.id)} disabled={awardM.isPending} style={{ border: '1px solid #2f6f4f', background: '#fff', color: '#2f6f4f', borderRadius: 6, padding: '2px 10px', fontSize: 12, cursor: 'pointer' }}>Award</button>}
-                </td>
+              <tr key={qt.id} style={{ background: qt.state === 'selected' ? '#eef7f0' : 'transparent' }}>
+                <td>{qt.vendor}{i === 0 && !awarded && <span style={{ color: 'var(--accent)', fontSize: 11 }}> · lowest</span>}{qt.state === 'selected' && <span style={{ color: 'var(--accent)', fontSize: 11 }}> · awarded</span>}</td>
+                <td className="num">{money(qt.unit_price)}</td>
+                <td className="num">{money(norm(qt.unit_price))}</td>
+                <td className="num">{qt.lead_time_weeks ?? '—'}</td>
+                <td className="num">{!awarded && <button className="btn sm" style={{ borderColor: 'var(--accent)', color: 'var(--accent)' }} onClick={() => awardM.mutate(qt.id)} disabled={awardM.isPending}>Award</button>}</td>
               </tr>
             ))}
           </tbody>
@@ -283,5 +257,3 @@ function SourcingPanel({ demandLineId, state, denominator, size }: { demandLineI
     </div>
   )
 }
-
-export default App
