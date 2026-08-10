@@ -1,7 +1,7 @@
 import { Fragment, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { apiGet, apiPost } from './services/api'
-import type { DemandLineRow, EquipmentType, Quote, RomBand, RomPriceRequest } from './types/rom'
+import type { DemandLineRow, EquipmentType, Project, ProjectLocation, Quote, RomBand, RomPriceRequest } from './types/rom'
 
 const money = (n: number | null): string => (n == null ? '—' : '$' + Math.round(n).toLocaleString())
 const parseSize = (s: string): number | null => { const m = s.match(/(\d+(?:\.\d+)?)/); return m ? Number(m[1]) : null }
@@ -14,6 +14,7 @@ const STOPS = [
   ['CUSTODY', 0], ['HANDOVER', 0], ['OPERATION', 0], ['DISPOSITION', 0],
 ] as const
 const TABS = [
+  { k: 'projects', label: 'Projects', live: true },
   { k: 'demand', label: 'Demand', live: true },
   { k: 'sourcing', label: 'Sourcing', live: true },
   { k: 'cost', label: 'Cost' }, { k: 'logistics', label: 'Logistics' },
@@ -24,16 +25,20 @@ const TABS = [
 export default function App() {
   const [project, setProject] = useState('DEMO')
   const [tab, setTab] = useState('demand')
-  const projectsQ = useQuery({ queryKey: ['projects'], queryFn: () => apiGet<string[]>('/projects') })
+  const projectsQ = useQuery({ queryKey: ['projects'], queryFn: () => apiGet<Project[]>('/projects') })
   const projects = projectsQ.data ?? []
+  const projectNames = [...new Set([project, ...projects.map((p) => p.name)])]
   return (
     <div className="wrap">
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <h1>Viasel</h1>
-        <label style={{ fontSize: 12, color: 'var(--mut)' }}>Project&nbsp;
-          <input className="si" style={{ width: 160 }} list="projects" value={project} onChange={(e) => setProject(e.target.value)} placeholder="pick or type new" />
-          <datalist id="projects">{projects.map((p) => <option key={p} value={p} />)}</datalist>
-        </label>
+        <div style={{ fontSize: 12, color: 'var(--mut)', display: 'flex', gap: 6, alignItems: 'center' }}>
+          Project
+          <select className="si" value={project} onChange={(e) => setProject(e.target.value)}>
+            {projectNames.map((p) => <option key={p} value={p}>{p}</option>)}
+          </select>
+          <span style={{ color: '#9aa0a6' }}>· create in Projects tab</span>
+        </div>
       </div>
       <p className="sub">One record per unit — priced from history, frozen, sourced, awarded.</p>
 
@@ -46,6 +51,7 @@ export default function App() {
         {TABS.map((t) => <div key={t.k} className={`tab${tab === t.k ? ' active' : ''}`} onClick={() => setTab(t.k)}>{t.live && <span className="star">★</span>}{t.label}</div>)}
       </div>
 
+      {tab === 'projects' && <ProjectsFace project={project} onPick={setProject} />}
       {tab === 'demand' && <DemandFace project={project} />}
       {tab === 'sourcing' && <SourcingFace project={project} />}
       {tab === 'cost' && <Preview title="Cost / Finance — Reconciliation" phase="Phase 2 · the wedge" body="Committed vs. actual and exposure compute themselves and drill to the unit." mock="[ committed-vs-actual by cost code · every row drills to a unit ]" note="Catches the $1.279M gap across 52 executed POs/COs that took weeks to find by hand." />}
@@ -64,6 +70,76 @@ function Preview({ title, phase, body, mock, note }: { title: string; phase: str
       <div className="headline"><h2>{title}</h2><span className="pill">{phase}</span></div>
       <p className="desc">{body}</p>
       <div className="card"><div className="ph">{mock}</div>{note && <div className="note">{note}</div>}</div>
+    </div>
+  )
+}
+
+function ProjectsFace({ project, onPick }: { project: string; onPick: (n: string) => void }) {
+  const qc = useQueryClient()
+  const projectsQ = useQuery({ queryKey: ['projects'], queryFn: () => apiGet<Project[]>('/projects') })
+  const projects = projectsQ.data ?? []
+  const [name, setName] = useState('')
+  const createM = useMutation({
+    mutationFn: () => apiPost<Project>('/projects', { name }),
+    onSuccess: (p) => { setName(''); onPick(p.name); qc.invalidateQueries({ queryKey: ['projects'] }) },
+  })
+  const selected = projects.find((p) => p.name === project)
+
+  return (
+    <div>
+      <div className="headline"><h2>Projects</h2><span className="pill live">LIVE · Supabase</span></div>
+      <p className="desc">Create a project, then define its building / area codes. Those become the location dropdowns when you build a ROM.</p>
+      <div className="two">
+        <div className="card">
+          <h4>① Create / pick project</h4>
+          <label>New project name</label>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <input className="fld" value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Mitten" />
+            <button className="btn pri" onClick={() => createM.mutate()} disabled={!name || createM.isPending}>Create</button>
+          </div>
+          <label style={{ marginTop: 14 }}>Existing</label>
+          <div>
+            {projects.length === 0 && <span style={{ color: 'var(--mut)', fontSize: 13 }}>none yet</span>}
+            {projects.map((p) => (
+              <button key={p.id} className="btn sm" style={{ marginRight: 6, marginBottom: 6, ...(p.name === project ? { borderColor: 'var(--accent)', color: 'var(--accent)' } : {}) }} onClick={() => onPick(p.name)}>{p.name}</button>
+            ))}
+          </div>
+        </div>
+        <div className="card">
+          <h4>② Building / area codes {selected ? `· ${selected.name}` : ''}</h4>
+          {!selected ? <p style={{ color: 'var(--mut)', fontSize: 13 }}>Pick or create a project first.</p> : <LocationEditor projectId={selected.id} />}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function LocationEditor({ projectId }: { projectId: string }) {
+  const qc = useQueryClient()
+  const locQ = useQuery({ queryKey: ['locations', projectId], queryFn: () => apiGet<ProjectLocation[]>(`/projects/${projectId}/locations`) })
+  const locs = locQ.data ?? []
+  const [code, setCode] = useState('')
+  const [kind, setKind] = useState('building')
+  const [labelText, setLabelText] = useState('')
+  const addM = useMutation({
+    mutationFn: () => apiPost(`/projects/${projectId}/locations`, { code, kind, label: labelText || null }),
+    onSuccess: () => { setCode(''); setLabelText(''); qc.invalidateQueries({ queryKey: ['locations', projectId] }) },
+  })
+  return (
+    <div>
+      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 10 }}>
+        <input className="si" style={{ width: 90 }} placeholder="code (C1)" value={code} onChange={(e) => setCode(e.target.value)} />
+        <select className="si" value={kind} onChange={(e) => setKind(e.target.value)}><option value="building">building</option><option value="area">area</option></select>
+        <input className="si" style={{ width: 140 }} placeholder="label (Compute 1)" value={labelText} onChange={(e) => setLabelText(e.target.value)} />
+        <button className="btn sm" style={{ background: 'var(--ink)', color: '#fff', borderColor: 'var(--ink)' }} onClick={() => addM.mutate()} disabled={!code || addM.isPending}>Add</button>
+      </div>
+      {locs.length === 0 && <div style={{ color: 'var(--mut)', fontSize: 12.5 }}>No codes yet.</div>}
+      {locs.length > 0 && (
+        <table>
+          <thead><tr><th>Code</th><th>Kind</th><th>Label</th></tr></thead>
+          <tbody>{locs.map((l) => <tr key={l.id}><td>{l.code}</td><td>{l.kind}</td><td>{l.label ?? '—'}</td></tr>)}</tbody>
+        </table>
+      )}
     </div>
   )
 }

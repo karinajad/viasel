@@ -1,3 +1,15 @@
+export interface Project {
+  id: string
+  name: string
+}
+
+export interface ProjectLocation {
+  id: string
+  code: string
+  kind: string
+  label: string | null
+}
+
 export interface EquipmentType {
   id: string
   design_term: string

@@ -154,3 +154,26 @@ class ScopeLine(Base):
         String, default="baseline", server_default=text("'baseline'"), nullable=False
     )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class Project(Base):
+    __tablename__ = "project"
+    __table_args__ = {"schema": SCHEMA}
+
+    id: Mapped[uuid.UUID] = _pk()
+    name: Mapped[str] = mapped_column(String, unique=True, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class ProjectLocation(Base):
+    """A building/area codifier for a project — feeds the location dropdowns."""
+
+    __tablename__ = "project_location"
+    __table_args__ = {"schema": SCHEMA}
+
+    id: Mapped[uuid.UUID] = _pk()
+    project_id: Mapped[uuid.UUID] = mapped_column(ForeignKey(f"{SCHEMA}.project.id"), nullable=False)
+    code: Mapped[str] = mapped_column(String, nullable=False)  # e.g. C1, DH3
+    kind: Mapped[str] = mapped_column(String, default="building", server_default=text("'building'"), nullable=False)
+    label: Mapped[str | None] = mapped_column(String)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
