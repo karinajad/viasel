@@ -7,13 +7,15 @@ const money = (n: number | null): string => (n == null ? '—' : '$' + Math.roun
 const parseSize = (s: string): number | null => { const m = s.match(/(\d+(?:\.\d+)?)/); return m ? Number(m[1]) : null }
 const TIER: Record<string, string> = { high: '#2f6f4f', medium: '#b7791f', low: '#b23a3a', none: '#6b7280' }
 const STATE: Record<string, string> = { drafted: '#6b7280', frozen: '#2f6f4f', thawed: '#b23a3a', matching: '#b7791f', matched: '#2f6f4f', satisfied: '#2f6f4f', cancelled: '#9aa0a6' }
+const describe = (d: DemandLineRow) => { const a = d.spec_attributes ?? {}; return `${String(a.type_query ?? '')} ${String(a.size ?? '')}${String(a.denominator ?? '').replace('$/', ' ')}`.trim() }
 
 const STOPS = [
   ['DEMAND', 1], ['SOURCING', 1], ['AGREEMENT', 0], ['PRODUCTION', 0],
   ['CUSTODY', 0], ['HANDOVER', 0], ['OPERATION', 0], ['DISPOSITION', 0],
 ] as const
 const TABS = [
-  { k: 'design', label: 'Design & Sourcing', live: true },
+  { k: 'demand', label: 'Demand', live: true },
+  { k: 'sourcing', label: 'Sourcing', live: true },
   { k: 'cost', label: 'Cost' }, { k: 'logistics', label: 'Logistics' },
   { k: 'vendor', label: 'Vendor' }, { k: 'ops', label: 'Operations' },
   { k: 'disposition', label: 'Disposition' }, { k: 'program', label: 'Program' },
@@ -21,8 +23,7 @@ const TABS = [
 
 export default function App() {
   const [project, setProject] = useState('DEMO')
-  const [tab, setTab] = useState('design')
-
+  const [tab, setTab] = useState('demand')
   return (
     <div className="wrap">
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
@@ -34,40 +35,22 @@ export default function App() {
       <p className="sub">One record per unit — priced from history, frozen, sourced, awarded.</p>
 
       <div className="road">
-        {STOPS.map(([name, done]) => (
-          <div key={name} className={`stop${done ? ' here' : ''}`}><span className="dot" /><b>{name}</b></div>
-        ))}
+        {STOPS.map(([name, done]) => <div key={name} className={`stop${done ? ' here' : ''}`}><span className="dot" /><b>{name}</b></div>)}
       </div>
       <p className="roadnote">Each unit travels this road. The green stops are live; the rest are the roadmap.</p>
 
       <div className="tabs">
-        {TABS.map((t) => (
-          <div key={t.k} className={`tab${tab === t.k ? ' active' : ''}`} onClick={() => setTab(t.k)}>
-            {t.live && <span className="star">★</span>}{t.label}
-          </div>
-        ))}
+        {TABS.map((t) => <div key={t.k} className={`tab${tab === t.k ? ' active' : ''}`} onClick={() => setTab(t.k)}>{t.live && <span className="star">★</span>}{t.label}</div>)}
       </div>
 
-      {tab === 'design' && <DesignFace project={project} />}
-      {tab === 'cost' && <Preview title="Cost / Finance — Reconciliation" phase="Phase 2 · the wedge"
-        body="Committed vs. actual and exposure compute themselves and drill to the unit."
-        mock="[ committed-vs-actual by cost code · every row drills to a unit ]"
-        note="Catches the $1.279M gap across 52 executed POs/COs that took weeks to find by hand." />}
-      {tab === 'logistics' && <Preview title="Logistics / Custody" phase="Phase 3"
-        body="Every unit's location — factory · transit · warehouse · staged · installed — with exceptions flagged."
-        mock="[ where-is-everything board · phone scan: receive · condition · zone ]" />}
-      {tab === 'vendor' && <Preview title="Vendor portal" phase="later"
-        body="Report production stage, upload test reports & serials, mark shipped."
-        mock="[ your scope · report status ]" note="Submitting = getting paid faster; ends four people chasing status." />}
-      {tab === 'ops' && <Preview title="Operations — Live Health" phase="Phase 4"
-        body="Each unit green/yellow/red vs. its own day-zero baseline; one plain-English digest a day."
-        mock="[ fleet health · '3 units drifting — UPS-07 battery trending warm' ]" />}
-      {tab === 'disposition' && <Preview title="Disposition — the passport" phase="Phase 4"
-        body="Scan a unit → its whole life on one page. Transfer hands the record to the next owner."
-        mock="[ biography: spec · price · changes · storage · service · health ]" />}
-      {tab === 'program' && <Preview title="Program — the rollup" phase="later"
-        body="Across projects: covered · pending procurement · at risk · surplus vs. shortfall — every number drills to a line."
-        mock="[ demand fulfillment by freeze set · net change by type ]" />}
+      {tab === 'demand' && <DemandFace project={project} />}
+      {tab === 'sourcing' && <SourcingFace project={project} />}
+      {tab === 'cost' && <Preview title="Cost / Finance — Reconciliation" phase="Phase 2 · the wedge" body="Committed vs. actual and exposure compute themselves and drill to the unit." mock="[ committed-vs-actual by cost code · every row drills to a unit ]" note="Catches the $1.279M gap across 52 executed POs/COs that took weeks to find by hand." />}
+      {tab === 'logistics' && <Preview title="Logistics / Custody" phase="Phase 3" body="Every unit's location — factory · transit · warehouse · staged · installed — with exceptions flagged." mock="[ where-is-everything board · phone scan: receive · condition · zone ]" />}
+      {tab === 'vendor' && <Preview title="Vendor portal" phase="later" body="Report production stage, upload test reports & serials, mark shipped." mock="[ your scope · report status ]" note="Submitting = getting paid faster; ends four people chasing status." />}
+      {tab === 'ops' && <Preview title="Operations — Live Health" phase="Phase 4" body="Each unit green/yellow/red vs. its own day-zero baseline; one plain-English digest a day." mock="[ fleet health · '3 units drifting — UPS-07 battery trending warm' ]" />}
+      {tab === 'disposition' && <Preview title="Disposition — the passport" phase="Phase 4" body="Scan a unit → its whole life on one page. Transfer hands the record to the next owner." mock="[ biography: spec · price · changes · storage · service · health ]" />}
+      {tab === 'program' && <Preview title="Program — the rollup" phase="later" body="Across projects: covered · pending procurement · at risk · surplus vs. shortfall — every number drills to a line." mock="[ demand fulfillment by freeze set · net change by type ]" />}
     </div>
   )
 }
@@ -82,7 +65,7 @@ function Preview({ title, phase, body, mock, note }: { title: string; phase: str
   )
 }
 
-function DesignFace({ project }: { project: string }) {
+function DemandFace({ project }: { project: string }) {
   const qc = useQueryClient()
   const typesQ = useQuery({ queryKey: ['equipment-types'], queryFn: () => apiGet<EquipmentType[]>('/equipment-types') })
   const types = typesQ.data ?? []
@@ -112,8 +95,8 @@ function DesignFace({ project }: { project: string }) {
 
   return (
     <div>
-      <div className="headline"><h2>Design &amp; Sourcing</h2><span className="pill live">LIVE · Supabase</span></div>
-      <p className="desc">Price → save as demand → freeze → source → award. Real, against the database.</p>
+      <div className="headline"><h2>Demand Management — Design &amp; ROM</h2><span className="pill live">LIVE · Supabase</span></div>
+      <p className="desc">Price a requirement from executed history, save it as demand, freeze it. No sourcing here — frozen demand flows to the Sourcing face.</p>
 
       <div className="two">
         <div className="card">
@@ -134,9 +117,7 @@ function DesignFace({ project }: { project: string }) {
             <span>size <strong className="chip">{size}</strong></span><span>denominator <strong className="chip">{denom}</strong></span>
           </div>
           <div style={{ fontSize: 11, color: '#9aa0a6', marginTop: 4 }}>size &amp; denominator come from the equipment — not typed</div>
-          <button className="btn pri" style={{ marginTop: 14, width: '100%' }} onClick={() => priceM.mutate({ type_query: type, denominator: denom, size, qty: Number(qty) })} disabled={priceM.isPending}>
-            {priceM.isPending ? 'Pricing…' : 'Price it'}
-          </button>
+          <button className="btn pri" style={{ marginTop: 14, width: '100%' }} onClick={() => priceM.mutate({ type_query: type, denominator: denom, size, qty: Number(qty) })} disabled={priceM.isPending}>{priceM.isPending ? 'Pricing…' : 'Price it'}</button>
         </div>
 
         <div className="card">
@@ -150,9 +131,7 @@ function DesignFace({ project }: { project: string }) {
               <div style={{ fontSize: 12, color: 'var(--mut)' }}>per unit ({band.denominator}) · extended <strong>{money(band.extended_mid)}</strong> (×{band.qty})</div>
               <div style={{ marginTop: 10, fontSize: 13 }}>Confidence: <strong style={{ color: TIER[band.confidence_tier] }}>{band.confidence_tier}</strong> · {band.comparables_count} comparables</div>
               {band.note && <div className="note">{band.note}</div>}
-              <button className="btn" style={{ marginTop: 12, width: '100%', borderColor: 'var(--accent)', color: 'var(--accent)' }} onClick={() => saveM.mutate()} disabled={saveM.isPending || band.unit_mid == null}>
-                {saveM.isPending ? 'Saving…' : 'Save as demand line ▸'}
-              </button>
+              <button className="btn" style={{ marginTop: 12, width: '100%', borderColor: 'var(--accent)', color: 'var(--accent)' }} onClick={() => saveM.mutate()} disabled={saveM.isPending || band.unit_mid == null}>{saveM.isPending ? 'Saving…' : 'Save as demand line ▸'}</button>
             </div>
           )}
         </div>
@@ -167,15 +146,12 @@ function DemandBoard({ project }: { project: string }) {
   const qc = useQueryClient()
   const [selected, setSelected] = useState<string[]>([])
   const [scope, setScope] = useState('project')
-  const [expanded, setExpanded] = useState<string | null>(null)
   const q = useQuery({ queryKey: ['demand-lines', project], queryFn: () => apiGet<DemandLineRow[]>(`/demand-lines?project=${project}`) })
   const lines = q.data ?? []
   const invalidate = () => qc.invalidateQueries({ queryKey: ['demand-lines'] })
   const freezeM = useMutation({ mutationFn: () => apiPost('/freeze', { line_ids: selected, project_id: project, scope, actor: 'web' }), onSuccess: () => { setSelected([]); invalidate() } })
   const thawM = useMutation({ mutationFn: (id: string) => apiPost(`/demand-lines/${id}/thaw`, { reason: null }), onSuccess: invalidate })
   const toggle = (id: string) => setSelected((s) => (s.includes(id) ? s.filter((x) => x !== id) : [...s, id]))
-  const attrs = (d: DemandLineRow) => d.spec_attributes ?? {}
-  const describe = (d: DemandLineRow) => { const a = attrs(d); return `${String(a.type_query ?? '')} ${String(a.size ?? '')}${String(a.denominator ?? '').replace('$/', ' ')}`.trim() }
 
   return (
     <div className="card">
@@ -191,25 +167,55 @@ function DemandBoard({ project }: { project: string }) {
         <table style={{ marginTop: 8 }}>
           <thead><tr><th style={{ width: 26 }} /><th>Requirement</th><th className="num">Qty</th><th className="num">ROM / unit</th><th>Status</th><th /></tr></thead>
           <tbody>
-            {lines.map((d) => { const a = attrs(d); return (
-              <Fragment key={d.id}>
-                <tr>
-                  <td>{d.state === 'drafted' && <input type="checkbox" checked={selected.includes(d.id)} onChange={() => toggle(d.id)} />}</td>
-                  <td>{describe(d) || '—'}</td>
-                  <td className="num">{d.qty}</td>
-                  <td className="num">{money(d.rom_unit_price)}</td>
-                  <td><span className="st" style={{ background: STATE[d.state] ?? '#6b7280' }}>{d.state}</span></td>
-                  <td className="num" style={{ whiteSpace: 'nowrap' }}>
-                    {(d.state === 'frozen' || d.state === 'matched') && <button className="btn sm" style={{ marginRight: 6 }} onClick={() => setExpanded(expanded === d.id ? null : d.id)}>{expanded === d.id ? 'Hide' : 'Source ▸'}</button>}
-                    {(d.state === 'frozen' || d.state === 'matched') && <button className="btn sm danger" onClick={() => thawM.mutate(d.id)} disabled={thawM.isPending}>Thaw</button>}
-                  </td>
-                </tr>
-                {expanded === d.id && <tr><td colSpan={6} style={{ background: '#fafbfc' }}><SourcingPanel demandLineId={d.id} state={d.state} denominator={String(a.denominator ?? '$/unit')} size={Number(a.size ?? 1)} /></td></tr>}
-              </Fragment>
-            ) })}
+            {lines.map((d) => (
+              <tr key={d.id}>
+                <td>{d.state === 'drafted' && <input type="checkbox" checked={selected.includes(d.id)} onChange={() => toggle(d.id)} />}</td>
+                <td>{describe(d) || '—'}</td>
+                <td className="num">{d.qty}</td>
+                <td className="num">{money(d.rom_unit_price)}</td>
+                <td><span className="st" style={{ background: STATE[d.state] ?? '#6b7280' }}>{d.state}</span></td>
+                <td className="num">{(d.state === 'frozen' || d.state === 'matched') && <button className="btn sm danger" onClick={() => thawM.mutate(d.id)} disabled={thawM.isPending}>Thaw</button>}</td>
+              </tr>
+            ))}
           </tbody>
         </table>
       )}
+    </div>
+  )
+}
+
+function SourcingFace({ project }: { project: string }) {
+  const [expanded, setExpanded] = useState<string | null>(null)
+  const q = useQuery({ queryKey: ['demand-lines', project], queryFn: () => apiGet<DemandLineRow[]>(`/demand-lines?project=${project}`) })
+  const lines = (q.data ?? []).filter((d) => d.state === 'frozen' || d.state === 'matched')
+
+  return (
+    <div>
+      <div className="headline"><h2>Sourcing</h2><span className="pill live">LIVE · Supabase</span></div>
+      <p className="desc">Frozen demand awaiting supply. Solicit competing quotes, level them per the natural unit, award one — only frozen demand is sourceable.</p>
+      <div className="card">
+        <h4>Buy list — frozen demand</h4>
+        {lines.length === 0 && <p style={{ color: 'var(--mut)', fontSize: 13 }}>Nothing to source yet — freeze a demand line on the <strong>Demand</strong> tab.</p>}
+        {lines.length > 0 && (
+          <table style={{ marginTop: 8 }}>
+            <thead><tr><th>Requirement</th><th className="num">Qty</th><th className="num">ROM / unit</th><th>Status</th><th /></tr></thead>
+            <tbody>
+              {lines.map((d) => { const a = d.spec_attributes ?? {}; return (
+                <Fragment key={d.id}>
+                  <tr>
+                    <td>{describe(d) || '—'}</td>
+                    <td className="num">{d.qty}</td>
+                    <td className="num">{money(d.rom_unit_price)}</td>
+                    <td><span className="st" style={{ background: STATE[d.state] ?? '#6b7280' }}>{d.state}</span></td>
+                    <td className="num"><button className="btn sm" onClick={() => setExpanded(expanded === d.id ? null : d.id)}>{expanded === d.id ? 'Hide' : (d.state === 'matched' ? 'View ▸' : 'Source ▸')}</button></td>
+                  </tr>
+                  {expanded === d.id && <tr><td colSpan={5} style={{ background: '#fafbfc' }}><SourcingPanel demandLineId={d.id} state={d.state} denominator={String(a.denominator ?? '$/unit')} size={Number(a.size ?? 1)} /></td></tr>}
+                </Fragment>
+              ) })}
+            </tbody>
+          </table>
+        )}
+      </div>
     </div>
   )
 }
@@ -228,7 +234,7 @@ function SourcingPanel({ demandLineId, state, denominator, size }: { demandLineI
 
   return (
     <div style={{ padding: '6px 2px' }}>
-      <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '.05em', color: 'var(--mut)', marginBottom: 6 }}>Sourcing {awarded && '· awarded'} · leveled per {denominator}</div>
+      <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '.05em', color: 'var(--mut)', marginBottom: 6 }}>Quotes {awarded && '· awarded'} · leveled per {denominator}</div>
       {!awarded && (
         <div style={{ display: 'flex', gap: 8, marginBottom: 10, flexWrap: 'wrap' }}>
           <input className="si" style={{ width: 140 }} placeholder="Vendor" value={vendor} onChange={(e) => setVendor(e.target.value)} />
