@@ -336,3 +336,140 @@ def test_legend_freeze_locks_codes_not_capacity() -> None:
                 s.execute(text(f"delete from viasel.{table} where project_id = :i"), {"i": p["id"]})
             s.execute(text("delete from viasel.project where id = :i"), {"i": p["id"]})
             s.commit()
+
+
+def test_agreement_generates_its_exhibits_from_the_record() -> None:
+    """An exhibit is a view of the record — nothing is typed into a template."""
+    P = "APIAGREE"
+    _scrub_agreement_fixture(P)  # a previous failed run must not block this one
+    pr = client.post("/projects", json={"name": P}).json()
+    ven = client.post("/vendors", json={"name": "T-Agree OEM", "code": "TAO", "role": "oem"}).json()
+    try:
+        client.patch(f"/projects/{pr['id']}", json={
+            "site_code": "DTW01", "buyer_entity": "RD Michigan Property Owner I LLC",
+            "address": "11600 West Michigan Ave.", "city": "Saline", "state": "MI"})
+        client.post(f"/projects/{pr['id']}/locations", json={"code": "C1", "label": "Compute 1", "kind": "building"})
+        client.post(f"/vendors/{ven['id']}/contacts", json={"name": "A. Turner", "title": "President"})
+
+        spec = {"type_query": "Padmount Transformer", "denominator": "$/kVA", "size": 5000, "sub": "5000kVA"}
+        client.post("/demand-lines/batch", json={"lines": [
+            {"project_id": P, "qty": 12, "spec_attributes": spec, "target_building": "C1", "rom_unit_price": 320000.0},
+            {"project_id": P, "qty": 8, "spec_attributes": spec, "target_building": "C1", "rom_unit_price": 320000.0}]})
+        client.post("/freeze", json={"project_id": P, "scope": "project", "actor": "test"})
+        g = client.get("/packages/candidates", params={"project": P}).json()["groups"][0]
+        pkg = client.post("/packages", json={"project_id": P, "demand_line_ids": g["demand_line_ids"]}).json()["package"]
+
+        # an open lot isn't committable
+        assert client.post("/agreements", json={"project_id": P, "package_ids": [pkg["id"]]}).status_code == 409
+
+        q = client.post(f"/packages/{pkg['id']}/quotes", json={
+            "vendor_id": ven["id"], "unit_price": 306074.0, "services_unit": 5000.0,
+            "one_time_cost": 40000.0, "lead_time_weeks": 52}).json()["leveling"][0]
+        client.post(f"/packages/{pkg['id']}/award", json={"quote_id": q["quote_id"]})
+
+        ag = client.post("/agreements", json={"project_id": P, "package_ids": [pkg["id"]]}).json()
+        assert ag["code"].endswith("-TAO-001") and ag["state"] == "drafted"
+        assert ag["line_count"] == 2 and ag["total_qty"] == 20
+        assert ag["package_codes"] == [pkg["code"]]
+        # value is derived from the lines, so it cannot disagree with the exhibit
+        assert ag["contract_value"] == round(q["effective_unit"] * 20, 2)
+        # the same scope can't be committed twice
+        assert client.post("/agreements", json={"project_id": P, "package_ids": [pkg["id"]]}).status_code == 409
+        # a signed version can't be registered before the exhibit data is released
+        assert client.post(f"/agreements/{ag['id']}/executed",
+                           json={"source_system": "Procore"}).status_code == 409
+        rel = client.post(f"/agreements/{ag['id']}/release", json={"released_date": "2026-08-11"}).json()
+        assert rel["state"] == "released"  # Viasel has no "executed" state — signing happens elsewhere
+
+        # the signed version comes back with a trimmed quantity and a retyped total
+        ex = client.post(f"/agreements/{ag['id']}/executed", json={
+            "source_system": "Procore", "external_document_ref": "MIT-EAT-002",
+            "execution_date": "2026-08-14", "stated_po_number": ag["code"],
+            "stated_vendor_name": "T-Agree OEM", "stated_total_qty": 18,
+            "stated_contract_value": 5400000.0, "retrieved_by": "test"}).json()
+        assert ex["reconciliation_status"] == "diverged"
+        rc = client.get(f"/agreements/{ag['id']}/reconciliation").json()
+        flagged = {d["field_name"]: (d["generated_value"], d["executed_value"]) for d in rc["divergences"]}
+        assert flagged["total_qty"] == ("20.00", "18.00")
+        assert "contract_value" in flagged
+        # a field the document didn't state isn't a divergence — that's a different claim
+        assert "buyer_entity" not in flagged
+        # flagged, never applied: the record still holds what it committed
+        assert client.get(f"/agreements/{ag['id']}").json()["total_qty"] == 20
+        assert client.post(f"/agreements/{ag['id']}/executed",
+                           json={"source_system": "X"}).status_code == 409
+
+        ex = client.get(f"/agreements/{ag['id']}/exhibits").json()
+        cover = ex["cover_sheet"]
+        assert cover["po_number"] == ag["code"]
+        assert cover["buyer_entity"] == "RD Michigan Property Owner I LLC"
+        assert cover["site_code"] == "DTW01" and "Saline" in cover["project_address"]
+        assert cover["vendor_code"] == "TAO" and "A. Turner" in cover["vendor_contacts"][0]
+
+        rows = ex["equipment_list"]
+        assert len(rows) == 2 and {r["qty"] for r in rows} == {12, 8}
+        assert all(r["lead_time_weeks"] == 52 for r in rows)
+        # the exhibit total is the contract value by construction, not by coincidence
+        assert round(sum(r["extended_price"] for r in rows), 2) == ag["contract_value"]
+        # the legend is the project's own codifiers, not a hand-kept list
+        assert {(x["kind"], x["code"]) for x in ex["legend"]} == {("campus", "DTW01"), ("building", "C1")}
+        # what exhibit content can attach to: the units allocated to this vendor at sourcing
+        assert [c["qty"] for c in ex["committed_lines"]] == [12, 8]
+        assert ex["equipment_types"][0]["unit_count"] == 20
+        assert ex["roj_dates"] == []  # nothing scheduled yet
+
+        # a delivery schedule cannot promise more units than were bought
+        line = ex["committed_lines"][0]
+        assert client.post(f"/agreements/{ag['id']}/exhibit-items", json={
+            "exhibit": "delivery_schedule", "scope_line_id": line["scope_line_id"],
+            "description": "tranche", "qty": line["qty"] + 1, "due_date": "2027-03-31"}).status_code == 409
+        ok = client.post(f"/agreements/{ag['id']}/exhibit-items", json={
+            "exhibit": "delivery_schedule", "scope_line_id": line["scope_line_id"],
+            "description": "tranche", "qty": line["qty"], "due_date": "2027-03-31"})
+        assert ok.status_code == 201
+
+        # spares and BOM name the units they belong to
+        assert client.post(f"/agreements/{ag['id']}/exhibit-items", json={
+            "exhibit": "spare_parts", "description": "floating", "qty": 1}).status_code == 409
+        # a required document needs the gate that gives it teeth
+        assert client.post(f"/agreements/{ag['id']}/exhibit-items", json={
+            "exhibit": "required_documents", "description": "manuals"}).status_code == 409
+        # capacity is per type, per place, and locked to a confirmed ROJ date
+        cap = {"exhibit": "shipping_capacity", "description": "4/month", "qty": 4}
+        assert client.post(f"/agreements/{ag['id']}/exhibit-items", json=cap).status_code == 409
+        etype = ex["equipment_types"][0]["equipment_type_id"]
+        assert client.post(f"/agreements/{ag['id']}/exhibit-items", json={
+            **cap, "equipment_type_id": etype, "building": "C1",
+            "due_date": "2028-01-31"}).status_code == 409
+
+        after = client.get(f"/agreements/{ag['id']}/exhibits").json()
+        assert after["roj_dates"] == ["2027-03-31"]
+        covered = {c["scope_line_id"]: c for c in after["delivery_coverage"]}
+        assert covered[line["scope_line_id"]]["remaining_qty"] == 0
+    finally:
+        _scrub_agreement_fixture(P)
+
+
+def _scrub_agreement_fixture(P: str) -> None:
+    """Tear the whole fixture down, in dependency order, whether or not the test got far."""
+    with SessionLocal() as s:
+        for q in (
+                f"delete from viasel.exhibit_item where agreement_id in (select id from viasel.agreement where project_id = '{P}')",
+                f"delete from viasel.field_divergence where executed_agreement_id in (select id from viasel.executed_agreement where agreement_id in (select id from viasel.agreement where project_id = '{P}'))",
+                f"delete from viasel.executed_agreement where agreement_id in (select id from viasel.agreement where project_id = '{P}')",
+                f"update viasel.scope_line set agreement_id = null where demand_line_id in (select id from viasel.demand_line where project_id = '{P}')",
+                f"delete from viasel.agreement where project_id = '{P}'",
+                f"delete from viasel.scope_line where demand_line_id in (select id from viasel.demand_line where project_id = '{P}')",
+                f"delete from viasel.quote where sourcing_package_id in (select id from viasel.sourcing_package where project_id = '{P}')",
+                f"delete from viasel.package_line where sourcing_package_id in (select id from viasel.sourcing_package where project_id = '{P}')",
+                f"delete from viasel.sourcing_package where project_id = '{P}'",
+                f"delete from viasel.freeze_event where project_id = '{P}'",
+                f"delete from viasel.demand_line where project_id = '{P}'",
+                "delete from viasel.vendor_contact where vendor_id in (select id from viasel.vendor where name like 'T-Agree%')",
+                "delete from viasel.vendor where name like 'T-Agree%'",
+                "delete from viasel.project_location where project_id in (select id from viasel.project where name = :p)",
+                "delete from viasel.legend_event where project_id in (select id from viasel.project where name = :p)",
+                "delete from viasel.project where name = :p",
+        ):
+            s.execute(text(q), {"p": P})
+        s.commit()

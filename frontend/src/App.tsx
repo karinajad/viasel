@@ -5,19 +5,21 @@ import DesignRegister from './DesignRegister'
 import SourcingFace from './Sourcing'
 import ProjectsFace from './Projects'
 import VendorsFace from './Vendors'
+import AgreementsFace from './Agreements'
 import { STATE, TIER, count, describe, money } from './lib/format'
 import { resolveSpec, subTypesFor, unitTypeCodes } from './lib/equipment'
 import { locationOptions } from './lib/locations'
 import type { DemandLineRow, EquipmentType, FreezeScopePreview, PricedDemandRead, Project, ProjectLocation, RomBand, RomPriceRequest } from './types/rom'
 
 const STOPS = [
-  ['DEMAND', 1], ['SOURCING', 1], ['AGREEMENT', 0], ['PRODUCTION', 0],
+  ['DEMAND', 1], ['SOURCING', 1], ['AGREEMENT', 1], ['PRODUCTION', 0],
   ['CUSTODY', 0], ['HANDOVER', 0], ['OPERATION', 0], ['DISPOSITION', 0],
 ] as const
 const TABS = [
   { k: 'projects', label: 'Projects', live: true },
   { k: 'demand', label: 'Demand', live: true },
   { k: 'sourcing', label: 'Sourcing', live: true },
+  { k: 'agreements', label: 'Agreements', live: true },
   { k: 'cost', label: 'Cost' }, { k: 'logistics', label: 'Logistics' },
   { k: 'vendor', label: 'Vendors', live: true }, { k: 'ops', label: 'Operations' },
   { k: 'disposition', label: 'Disposition' }, { k: 'program', label: 'Program' },
@@ -55,6 +57,7 @@ export default function App() {
       {tab === 'projects' && <ProjectsFace project={project} onPick={setProject} />}
       {tab === 'demand' && <DemandFace project={project} projectId={projects.find((p) => p.name === project)?.id} />}
       {tab === 'sourcing' && <SourcingFace project={project} />}
+      {tab === 'agreements' && <AgreementsFace project={project} />}
       {tab === 'cost' && <Preview title="Cost / Finance — Reconciliation" phase="Phase 2 · the wedge" body="Committed vs. actual and exposure compute themselves and drill to the unit." mock="[ committed-vs-actual by cost code · every row drills to a unit ]" note="Catches the $1.279M gap across 52 executed POs/COs that took weeks to find by hand." />}
       {tab === 'logistics' && <Preview title="Logistics / Custody" phase="Phase 3" body="Every unit's location — factory · transit · warehouse · staged · installed — with exceptions flagged." mock="[ where-is-everything board · phone scan: receive · condition · zone ]" />}
       {tab === 'vendor' && <VendorsFace />}

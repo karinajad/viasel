@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.routers import demand, packaging, projects, rom, sourcing, vendors
+from app.routers import agreements, demand, packaging, projects, rom, sourcing, vendors
 
 app = FastAPI(title="Viasel")
 
@@ -24,3 +24,4 @@ app.include_router(sourcing.router)
 app.include_router(packaging.router)
 app.include_router(projects.router)
 app.include_router(vendors.router)
+app.include_router(agreements.router)

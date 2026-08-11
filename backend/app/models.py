@@ -239,6 +239,7 @@ class ScopeLine(Base):
     __table_args__ = {"schema": SCHEMA}
 
     id: Mapped[uuid.UUID] = _pk()
+    agreement_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey(f"{SCHEMA}.agreement.id"))
     demand_line_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey(f"{SCHEMA}.demand_line.id"), nullable=False
     )
@@ -399,6 +400,139 @@ class VendorContact(Base):
     title: Mapped[str | None] = mapped_column(String)
     email: Mapped[str | None] = mapped_column(String)
     phone: Mapped[str | None] = mapped_column(String)
+    active: Mapped[bool] = mapped_column(
+        Boolean, default=True, server_default=text("true"), nullable=False
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class Agreement(Base):
+    """The instrument that commits supply — and the thing exhibits are generated from.
+
+    Contract value is never stored. It is the sum of the scope lines the agreement covers,
+    so the document and the record cannot disagree about what was bought: there is only one
+    number and it is derived. An exhibit is a view of this, not a file attached to it.
+    """
+
+    __tablename__ = "agreement"
+    __table_args__ = {"schema": SCHEMA}
+
+    id: Mapped[uuid.UUID] = _pk()
+    project_id: Mapped[str] = mapped_column(String, nullable=False)
+    vendor_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey(f"{SCHEMA}.vendor.id"))
+    vendor_name: Mapped[str] = mapped_column(String, nullable=False)  # as committed, verbatim
+    code: Mapped[str] = mapped_column(String, nullable=False)  # e.g. MIT-EAT-002
+    agreement_type: Mapped[str] = mapped_column(
+        String, default="purchase", server_default=text("'purchase'"), nullable=False
+    )  # purchase | integration
+    # snapshotted at issue: the buyer entity on an executed document must not silently
+    # change because someone later edited the project
+    buyer_entity: Mapped[str | None] = mapped_column(String)
+    # our own side only. Viasel authors the exhibit data and hands it over; whether the
+    # instrument was signed is a fact about the executed document, not a state we perform.
+    state: Mapped[str] = mapped_column(
+        String, default="drafted", server_default=text("'drafted'"), nullable=False
+    )  # drafted | released | withdrawn
+    released_date: Mapped[date | None] = mapped_column(Date)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class ExecutedAgreement(Base):
+    """The signed instrument, as held — not as owned.
+
+    The agreement is executed wherever the client already executes agreements. Viasel's job
+    is to take the executed version back, record where it lives, and reconcile it field by
+    field against the exhibit data it generated. That reconciliation is the point: a quantity
+    trimmed in negotiation or a price retyped by hand never becomes a formal amendment, and
+    is invisible to everyone until the two versions are compared.
+    """
+
+    __tablename__ = "executed_agreement"
+    __table_args__ = {"schema": SCHEMA}
+
+    id: Mapped[uuid.UUID] = _pk()
+    agreement_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey(f"{SCHEMA}.agreement.id"), nullable=False
+    )
+    source_system: Mapped[str] = mapped_column(String, nullable=False)  # where it actually lives
+    external_document_ref: Mapped[str | None] = mapped_column(String)
+    execution_date: Mapped[date | None] = mapped_column(Date)
+
+    # what the signed document says, as read off it — deliberately separate from what the
+    # record generated, because the whole exercise is comparing the two
+    stated_po_number: Mapped[str | None] = mapped_column(String)
+    stated_buyer_entity: Mapped[str | None] = mapped_column(String)
+    stated_vendor_name: Mapped[str | None] = mapped_column(String)
+    stated_total_qty: Mapped[int | None] = mapped_column(Integer)
+    stated_contract_value: Mapped[float | None] = mapped_column(Numeric)
+
+    reconciliation_status: Mapped[str] = mapped_column(
+        String, default="pending", server_default=text("'pending'"), nullable=False
+    )  # pending | matched | diverged
+    retrieved_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    retrieved_by: Mapped[str | None] = mapped_column(String)
+
+
+class FieldDivergence(Base):
+    """One field where the executed document and the record disagree.
+
+    Flagged, never auto-corrected. Silently adopting the document's number would destroy the
+    only evidence that a change happened outside the record.
+    """
+
+    __tablename__ = "field_divergence"
+    __table_args__ = {"schema": SCHEMA}
+
+    id: Mapped[uuid.UUID] = _pk()
+    executed_agreement_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey(f"{SCHEMA}.executed_agreement.id"), nullable=False
+    )
+    field_name: Mapped[str] = mapped_column(String, nullable=False)
+    generated_value: Mapped[str | None] = mapped_column(String)
+    executed_value: Mapped[str | None] = mapped_column(String)
+    flagged_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    reviewed_by: Mapped[str | None] = mapped_column(String)
+    resolution_note: Mapped[str | None] = mapped_column(String)
+
+
+class ExhibitItem(Base):
+    """A line of an exhibit the record can't derive — entered per agreement, per vendor.
+
+    Cover sheet, equipment list and legend fall out of the record. The rest is contract-time
+    content: what's in the box, what spares come with it, when each tranche lands, what
+    documents are owed and at which gate. Every row can point at the scope line it belongs
+    to, which is what ties an exhibit back to the demand that was assigned at sourcing.
+    """
+
+    __tablename__ = "exhibit_item"
+    __table_args__ = {"schema": SCHEMA}
+
+    id: Mapped[uuid.UUID] = _pk()
+    agreement_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey(f"{SCHEMA}.agreement.id"), nullable=False
+    )
+    # delivery_schedule | spare_parts | bill_of_materials | shipping_capacity | required_documents
+    exhibit: Mapped[str] = mapped_column(String, nullable=False)
+    # the committed line this row belongs to; null for rows that cover the whole agreement
+    scope_line_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey(f"{SCHEMA}.scope_line.id"))
+    # required documents usually attach to an equipment TYPE — "every padmount needs factory
+    # test reports" — not to each unit. Either grain is allowed; the entry toggles between them.
+    equipment_type_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey(f"{SCHEMA}.equipment_type.id")
+    )
+    # shipping capacity is stated per place across time, so it carries its own place rather
+    # than borrowing one from a line
+    building: Mapped[str | None] = mapped_column(String)
+    area: Mapped[str | None] = mapped_column(String)
+
+    description: Mapped[str] = mapped_column(String, nullable=False)
+    qty: Mapped[int | None] = mapped_column(Integer)
+    unit_price: Mapped[float | None] = mapped_column(Numeric)
+    due_date: Mapped[date | None] = mapped_column(Date)
+    # for required documents: which lifecycle gate the document is owed at. "prior to final
+    # payment" is the withholding lever, so the gate is the part that has teeth.
+    gate: Mapped[str | None] = mapped_column(String)
+    note: Mapped[str | None] = mapped_column(String)
     active: Mapped[bool] = mapped_column(
         Boolean, default=True, server_default=text("true"), nullable=False
     )
