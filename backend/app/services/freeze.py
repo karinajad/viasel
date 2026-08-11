@@ -49,15 +49,62 @@ def transition(dl: DemandLine, to: str) -> None:
     dl.state = to
 
 
+PROJECT = "project"
+BUILDING = "building"
+AREA = "area"
+SCOPES = (PROJECT, BUILDING, AREA)
+
+
+class BadScope(Exception):
+    """The freeze scope doesn't describe a real slice of the design."""
+
+
+def scoped_drafted_lines(
+    session: Session, project_id: str, scope: str, scope_ref: str | None
+) -> list[DemandLine]:
+    """Every drafted line the scope covers.
+
+    Freeze is a design-release event over a slice of the design, not a hand-picked set of
+    rows — so the scope decides what gets frozen. The axis is the project's location
+    legend, because design releases by place. Grouping equipment to buy from one vendor is
+    a sourcing decision (bid packages) and has no business in this gate.
+    """
+    if scope not in SCOPES:
+        raise BadScope(f"scope must be one of {', '.join(SCOPES)} — got '{scope}'")
+    if scope != PROJECT and not scope_ref:
+        raise BadScope(f"a {scope} freeze has to say which {scope}")
+
+    stmt = select(DemandLine).where(
+        DemandLine.project_id == project_id, DemandLine.state == DRAFTED
+    )
+    if scope == BUILDING:
+        stmt = stmt.where(DemandLine.target_building == scope_ref)
+    elif scope == AREA:
+        stmt = stmt.where(DemandLine.target_area == scope_ref)
+    return list(session.scalars(stmt.order_by(DemandLine.created_at)))
+
+
 def freeze(
-    session: Session, line_ids: list[uuid.UUID], project_id: str, scope: str, actor: str
+    session: Session,
+    line_ids: list[uuid.UUID],
+    project_id: str,
+    scope: str,
+    actor: str,
+    scope_ref: str | None = None,
 ) -> FreezeEvent:
     """Flip the given demand lines to frozen and record a FreezeEvent snapshot."""
+    if scope not in SCOPES:
+        raise BadScope(f"scope must be one of {', '.join(SCOPES)} — got '{scope}'")
+    if scope != PROJECT and not scope_ref:
+        raise BadScope(f"a {scope} freeze has to say which {scope}")
+    if not line_ids:
+        raise BadScope("nothing drafted in that scope to freeze")
     for dl in session.scalars(select(DemandLine).where(DemandLine.id.in_(line_ids))):
         transition(dl, FROZEN)
     event = FreezeEvent(
         project_id=project_id,
         scope=scope,
+        scope_ref=scope_ref,
         demand_line_ids=[str(i) for i in line_ids],
         actor=actor,
     )

@@ -1,7 +1,9 @@
 import uuid
 from datetime import date, datetime
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field, model_validator
+
+from app.schemas.rom import RomRollup
 
 
 class EquipmentTypeRead(BaseModel):
@@ -22,10 +24,29 @@ class DemandLineCreate(BaseModel):
     target_area: str | None = None
     target_position: str | None = None
     required_by_date: date | None = None
+    lead_time_weeks: int | None = None  # design-side long-lead assumption
     # captured ROM result (the calculator's output becomes the demand line's budget)
     rom_unit_price: float | None = None
     rom_confidence: str | None = None
     rom_comparables_count: int | None = None
+    rom_basis: str | None = None  # mid | low | high | route:<name>
+    rom_note: str | None = None
+
+    @model_validator(mode="after")
+    def _basis_off_default_needs_a_reason(self) -> "DemandLineCreate":
+        # same house rule as thawing a freeze or ruling out a bid: departing from the
+        # default is allowed, silently departing from it is not
+        if self.rom_basis and self.rom_basis != "mid" and not (self.rom_note or "").strip():
+            raise ValueError(
+                f"a ROM taken at '{self.rom_basis}' instead of the median needs a stated reason"
+            )
+        return self
+
+
+class DemandLineBatchCreate(BaseModel):
+    """The line-item grid saved in one shot — every row becomes drafted demand."""
+
+    lines: list[DemandLineCreate] = Field(min_length=1, max_length=500)
 
 
 class DemandLineRead(BaseModel):
@@ -41,16 +62,35 @@ class DemandLineRead(BaseModel):
     target_area: str | None
     target_position: str | None
     required_by_date: date | None
+    lead_time_weeks: int | None
     rom_unit_price: float | None
     rom_confidence: str | None
+    rom_basis: str | None
+    rom_note: str | None
     created_at: datetime
 
 
 class FreezeRequest(BaseModel):
-    line_ids: list[uuid.UUID]
     project_id: str
-    scope: str  # project | building | system
+    scope: str = "project"  # project | building | area — the project's location legend
+    scope_ref: str | None = None  # which building/area; not needed for a project freeze
     actor: str
+
+
+class FreezeScopePreview(BaseModel):
+    """What a freeze at this scope would cover, before committing to it."""
+
+    scope: str
+    scope_ref: str | None
+    line_count: int
+    total_qty: int
+    rom_extended: float | None
+    demand_line_ids: list[uuid.UUID]
+
+
+class PriceDemandRequest(BaseModel):
+    project_id: str
+    only_unpriced: bool = True  # leave already-priced lines alone unless asked
 
 
 class ThawRequest(BaseModel):
@@ -70,6 +110,7 @@ class FreezeEventRead(BaseModel):
     id: uuid.UUID
     project_id: str
     scope: str
+    scope_ref: str | None
     demand_line_ids: list | None
     actor: str | None
     created_at: datetime
@@ -83,3 +124,11 @@ class ThawEventRead(BaseModel):
     actor: str | None
     reason: str | None
     created_at: datetime
+
+
+class PricedDemandRead(BaseModel):
+    """What a ROM pass over existing demand produced."""
+
+    priced: list[DemandLineRead]
+    rollup: RomRollup
+    skipped_no_physics: int  # lines with no equipment type — real demand, unpriceable

@@ -42,7 +42,23 @@ label{display:block;font-size:12px;color:var(--mut);margin:10px 0 4px}
 .btn.pri:disabled{background:var(--line);border-color:var(--line);cursor:default}
 .btn.sm{padding:3px 10px;font-size:12px;border-radius:6px}
 .btn.danger{border-color:var(--red);color:var(--red);background:#fff}
-.si{padding:6px 8px;border:1px solid var(--line);border-radius:6px;font-size:13px}
+.si{padding:6px 8px;border:1px solid var(--line);border-radius:6px;font-size:13px;background:#fff;color:var(--ink)}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden;background:#fff}
+.seg button{border:none;border-right:1px solid var(--line);background:#fff;color:var(--mut);padding:7px 14px;font-size:12.5px;cursor:pointer}
+.seg button:last-child{border-right:none}
+.seg button:hover{background:var(--soft)}
+.seg button.on{background:var(--ink);color:#fff}
+
+/* bid entry — required fields up front, cost layers behind a disclosure */
+.bidform{background:#fff;border:1px solid var(--line);border-radius:10px;padding:12px;margin-bottom:12px}
+.bidform .row{display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end}
+.bidform .row.layers{margin-top:10px;padding-top:10px;border-top:1px dashed var(--line)}
+.bidform .si{width:100%}
+.disc{margin-top:10px;border:none;background:none;padding:0;font-size:12px;color:var(--mut);
+  cursor:pointer;display:flex;align-items:center;gap:7px;font-family:inherit}
+.disc:hover{color:var(--ink)}
+.disc .badge{background:var(--soft);border-radius:999px;padding:1px 7px;font-size:11px;color:var(--ink)}
+.disc .hint{color:#9aa0a6}
 
 table{width:100%;border-collapse:collapse;font-size:13px}
 th{color:var(--mut);font-weight:600;font-size:11px;text-transform:uppercase;letter-spacing:.04em;text-align:left;padding:6px}
@@ -54,3 +70,19 @@ td{padding:7px 6px;border-top:1px solid var(--soft)}
 .band .nums{display:flex;justify-content:space-between;font-variant-numeric:tabular-nums;font-size:15px}
 .band .mid{font-weight:700;font-size:21px}
 .track{height:10px;border-radius:6px;background:linear-gradient(90deg,#e7efe9,#bcd8c6,#e7efe9);border:1px solid var(--line);margin:6px 0}
+
+/* printing an exhibit: only the exhibit, none of the app around it */
+@media print {
+  body * { visibility: hidden; }
+  .printable, .printable * { visibility: visible; }
+  .printable { position: absolute; left: 0; top: 0; width: 100%; }
+  .no-print { display: none !important; }
+}
+
+/* one space per exhibit, rather than one long scroll */
+.exhibtabs{display:flex;flex-wrap:wrap;gap:4px;margin:0 0 12px;border-bottom:1px solid var(--line);padding-bottom:8px}
+.exhibtabs button{border:1px solid transparent;background:none;border-radius:7px;padding:5px 10px;
+  font-size:12px;cursor:pointer;color:var(--mut);font-family:inherit;display:flex;align-items:center;gap:6px}
+.exhibtabs button:hover{background:var(--soft);color:var(--ink)}
+.exhibtabs button.on{background:#fff;border-color:var(--line);color:var(--ink);font-weight:600}
+.exhibtabs .n{background:var(--soft);border-radius:999px;padding:0 6px;font-size:10.5px;font-weight:600}

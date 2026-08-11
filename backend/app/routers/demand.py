@@ -8,16 +8,29 @@ from app.db import get_session
 from app.deps import require_token
 from app.models import DemandLine, EquipmentType
 from app.schemas.demand import (
+    DemandLineBatchCreate,
     DemandLineCreate,
     DemandLineRead,
     EquipmentTypeRead,
     FreezeEventRead,
     FreezeRequest,
+    FreezeScopePreview,
+    PricedDemandRead,
+    PriceDemandRequest,
     ThawEventRead,
     ThawLineRequest,
     ThawRequest,
 )
-from app.services.freeze import DemandNotFrozen, InvalidTransition, freeze, thaw, thaw_line
+from app.services.freeze import (
+    BadScope,
+    DemandNotFrozen,
+    InvalidTransition,
+    freeze,
+    scoped_drafted_lines,
+    thaw,
+    thaw_line,
+)
+from app.services.rom import price_demand_lines
 
 router = APIRouter(tags=["demand"], dependencies=[Depends(require_token)])
 
@@ -38,6 +51,19 @@ def create_demand_line(
     return dl
 
 
+@router.post("/demand-lines/batch", response_model=list[DemandLineRead], status_code=201)
+def create_demand_lines(
+    body: DemandLineBatchCreate, session: Session = Depends(get_session)
+) -> list[DemandLine]:
+    """Save a whole line-item list as drafted demand — all of it or none of it."""
+    dls = [DemandLine(**line.model_dump()) for line in body.lines]
+    session.add_all(dls)
+    session.commit()
+    for dl in dls:
+        session.refresh(dl)
+    return dls
+
+
 @router.get("/demand-lines", response_model=list[DemandLineRead])
 def list_demand_lines(
     project: str | None = None,
@@ -52,10 +78,56 @@ def list_demand_lines(
     return list(session.scalars(stmt.order_by(DemandLine.created_at)))
 
 
+@router.post("/demand-lines/price", response_model=PricedDemandRead, status_code=200)
+def price_demand(
+    body: PriceDemandRequest, session: Session = Depends(get_session)
+) -> "PricedDemandRead":
+    """ROM the project's drafted demand in place — pricing as a byproduct, re-runnable."""
+    lines, roll, no_physics = price_demand_lines(
+        session, body.project_id, only_unpriced=body.only_unpriced
+    )
+    session.commit()
+    for dl in lines:
+        session.refresh(dl)
+    return PricedDemandRead(priced=lines, rollup=roll, skipped_no_physics=no_physics)  # type: ignore[arg-type]
+
+
+@router.get("/freeze/preview", response_model=FreezeScopePreview)
+def freeze_preview(
+    project: str,
+    scope: str = "project",
+    scope_ref: str | None = None,
+    session: Session = Depends(get_session),
+) -> FreezeScopePreview:
+    """What freezing this scope would cover — see it before you lock it."""
+    try:
+        lines = scoped_drafted_lines(session, project, scope, scope_ref)
+    except BadScope as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    priced = [dl for dl in lines if dl.rom_unit_price is not None]
+    return FreezeScopePreview(
+        scope=scope,
+        scope_ref=scope_ref,
+        line_count=len(lines),
+        total_qty=sum(dl.qty for dl in lines),
+        rom_extended=(
+            round(sum(float(dl.rom_unit_price or 0) * dl.qty for dl in priced), 2) if priced else None
+        ),
+        demand_line_ids=[dl.id for dl in lines],
+    )
+
+
 @router.post("/freeze", response_model=FreezeEventRead)
 def freeze_lines(body: FreezeRequest, session: Session = Depends(get_session)) -> object:
+    """Freeze everything drafted in the scope. The scope decides, not a hand-picked list."""
     try:
-        event = freeze(session, body.line_ids, body.project_id, body.scope, body.actor)
+        lines = scoped_drafted_lines(session, body.project_id, body.scope, body.scope_ref)
+        event = freeze(
+            session, [dl.id for dl in lines], body.project_id, body.scope, body.actor,
+            scope_ref=body.scope_ref,
+        )
+    except BadScope as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
     except InvalidTransition as e:
         raise HTTPException(status_code=409, detail=str(e)) from e
     session.commit()
