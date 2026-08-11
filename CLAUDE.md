@@ -38,14 +38,24 @@ equipment**, not by a project, platform, or party. It outlives every system it t
   API-key auth (`X-API-Key`). Checks: `ruff` `mypy` `pytest` (backend), `oxlint` `tsc -b` `vite build` (frontend).
 - **DB schema `viasel`:** `equipment_type`, `executed_scope_line` (price corpus), `demand_line`, `freeze_event`,
   `thaw_event`, `sourcing_package`, `package_line`, `quote`, `scope_line`, `project`, `project_location`,
-  `legend_event`. Migrations `0001`–`0007`. Two rules live in the DB, not just in code: a demand line can be
+  `legend_event`, `project_contact`, `vendor`, `vendor_contact`. Migrations `0001`–`0012`. Two rules live in the DB, not just in code: a demand line can be
   in only one open package (partial unique index), and a quote targets a package **xor** a demand line (CHECK).
 - **Frontend = wireframe shell** (road pipeline + role tabs). Live faces:
-  - **Projects** — create project · nested building/area codifiers (edit/delete/sort) · **freeze legend** (thaw needs reason).
-  - **Demand Management (Design & ROM)** — a duo: **Line-item list** (stack `Type ▾ · Size ▾ · Qty ·
-    Location ▾` rows → one button ROMs the whole list into a WIP project ROM → saves all as drafted demand)
-    and **Quick price** (one requirement, full layer breakdown). Denominator + size derive from the
-    equipment; locations come from the project's codes. Then freeze/thaw on the shared demand board.
+  - **Projects** — create project · **project detail for inference** (site code · buyer entity · address ·
+    MW IT · redundancy · cooling · elevation · ambient max · sound limit — typed, because inference queries
+    them) · nested building/area codifiers with **per-building MW** and a capacity reconciliation check ·
+    **accountable & responsible by function** (recorded, not enforced — no user model) · **freeze legend**.
+    No energization date: that's a schedule output and P6 owns it; the record carries per-unit required-by.
+  - **Vendors** — one record per firm (dedup by name), role (oem/distributor/integrator/supplier), the OEMs
+    they actually manufacture through, factory/integration location, sub-supplier, status with a **required
+    reason** for hold/disqualified, contacts. Bids name a roster vendor (`quote.vendor_id`), and a vendor on
+    hold can't be bid — which is what finally lets §11 vendor reliability accumulate.
+  - **Demand** — two workflows, deliberately apart. **Design register**: `Type ▾ · Size ▾ · Qty ·
+    Location ▾ · Required by · LLE`, **no cost** — design declares what's needed, where, by when.
+    **ROM**: prices the register in place (`POST /demand-lines/price`, re-runnable, drafted only), or
+    prices one item deliberately with its **comparables grouped by supply route** and a selectable basis
+    (median/low/high/route) that **requires a stated reason** when it isn't the median. Freeze scope is
+    `project | building | area` and *selects* the lines.
   - **Sourcing** — per project: frozen demand grouped into **bid packages** (lots pooled on physics —
     same type + size, across buildings) → one bid per vendor for the whole lot → **leveling** (per
     denominator, vs lowest, vs the ROM the record carried) → award, which fans **one scope line out to
@@ -56,7 +66,7 @@ equipment**, not by a project, platform, or party. It outlives every system it t
 ## Key endpoints (all require `X-API-Key`)
 `GET/POST /projects` · `GET/POST/PATCH/DELETE /projects/{id}/locations` · `POST /projects/{id}/legend/freeze|thaw`
 · `GET /equipment-types` · `POST /rom/price` · `POST /rom/price-batch` (whole list + rollup)
-· `GET/POST /demand-lines` · `POST /demand-lines/batch` · `GET /freeze/preview` · `POST /freeze`
+· `GET/POST /demand-lines` · `POST /demand-lines/batch` · `POST /demand-lines/price` · `GET /freeze/preview` · `POST /freeze`
 · `POST /demand-lines/{id}/thaw`
 · `GET /packages/candidates?project=` · `GET/POST /packages` · `GET /packages/{id}` · `POST /packages/{id}/quotes`
 · `POST /packages/{id}/award` · `POST /packages/{id}/lines` (move/combine) · `POST /packages/{id}/split`
@@ -69,7 +79,8 @@ uses packages) · `GET /health` (open).
 - **Paste-from-Excel into the line-item grid:** the real unlock for hundreds of lines — needs its own
   column-mapping face.
 - **Split award** (one lot, two vendors by building) — schema already allows it, allocation rules don't exist yet.
-  Same for cancelling a package and vendors as records rather than typed strings.
+- **Quantity inference** — units per MW IT from delivered projects, the mirror of the ROM's $/denominator.
+  Project detail now carries the denominators; the ratio library needs more than one campus to seed.
 - **Agreement / Exhibits:** exhibits are **generated from the record** (never a template a counterparty fills in),
   through a **contracts portal**; the **executed (signed) exhibit is stored back and reconciled field-by-field**
   against what Viasel generated (flag any drift); **required-document dropdowns keyed to lifecycle gates** (Schedule D),

@@ -83,7 +83,7 @@ def post_package_quote(
     try:
         add_package_quote(
             session, pkg, body.vendor, body.unit_price,
-            oem=body.oem, lead_time_weeks=body.lead_time_weeks, terms_note=body.terms_note,
+            vendor_id=body.vendor_id, oem=body.oem, lead_time_weeks=body.lead_time_weeks, terms_note=body.terms_note,
             services_unit=body.services_unit, freight_unit=body.freight_unit,
             discount_unit=body.discount_unit, one_time_cost=body.one_time_cost,
         )

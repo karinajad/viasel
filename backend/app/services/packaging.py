@@ -18,7 +18,7 @@ from collections.abc import Sequence
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models import DemandLine, PackageLine, Quote, ScopeLine, SourcingPackage
+from app.models import DemandLine, PackageLine, Quote, ScopeLine, SourcingPackage, Vendor
 from app.schemas.packaging import (
     CandidateGroup,
     CandidatesRead,
@@ -399,9 +399,10 @@ def remove_line(session: Session, pkg: SourcingPackage, demand_line_id: uuid.UUI
 def add_package_quote(
     session: Session,
     pkg: SourcingPackage,
-    vendor: str,
+    vendor: str | None,
     unit_price: float,
     *,
+    vendor_id: uuid.UUID | None = None,
     oem: str | None = None,
     lead_time_weeks: int | None = None,
     terms_note: str | None = None,
@@ -410,7 +411,25 @@ def add_package_quote(
     discount_unit: float | None = None,
     one_time_cost: float | None = None,
 ) -> Quote:
-    """Take a vendor's bid for the whole lot: equipment per unit, plus its cost layers."""
+    """Take a vendor's bid for the whole lot: equipment per unit, plus its cost layers.
+
+    A roster vendor is preferred: reliability (§11) can only accumulate against a stable
+    identity. Free text still works for a firm not on the roster yet, and the typed name is
+    kept verbatim either way so nothing is silently rewritten.
+    """
+    resolved = None
+    if vendor_id is not None:
+        resolved = session.get(Vendor, vendor_id)
+        if resolved is None or not resolved.active:
+            raise PackagingError("that vendor is not on the roster")
+        if resolved.status in ("hold", "disqualified"):
+            raise PackagingError(
+                f"{resolved.name} is {resolved.status}"
+                + (f" — {resolved.status_note}" if resolved.status_note else "")
+            )
+    name = (vendor or "").strip() or (resolved.name if resolved else "")
+    if not name:
+        raise PackagingError("a bid needs a vendor")
     if pkg.state != OPEN:
         raise PackagingError(f"package {pkg.code} is {pkg.state} — bidding is closed")
     lines = package_lines(session, pkg)
@@ -419,7 +438,7 @@ def add_package_quote(
     for dl in lines:
         assert_frozen_for_supply(dl)  # the gate, again — demand may have thawed since
     q = Quote(
-        sourcing_package_id=pkg.id, vendor=vendor, unit_price=unit_price, oem=oem,
+        sourcing_package_id=pkg.id, vendor=name, vendor_id=vendor_id, unit_price=unit_price, oem=oem,
         lead_time_weeks=lead_time_weeks, denominator=pkg.denominator, size=pkg.size,
         terms_note=terms_note, services_unit=services_unit, freight_unit=freight_unit,
         discount_unit=discount_unit, one_time_cost=one_time_cost,
@@ -579,6 +598,7 @@ def leveling(
             LevelingRow(
                 quote_id=q.id,
                 vendor=q.vendor,
+                vendor_id=q.vendor_id,
                 oem=q.oem,
                 unit_price=round(_f(q.unit_price), 2),
                 effective_unit=round(unit, 2),

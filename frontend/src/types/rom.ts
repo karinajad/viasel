@@ -1,7 +1,40 @@
-export interface Project {
+/** The facts that let history be inferred onto a project. All optional. */
+export interface ProjectDetail {
+  site_code: string | null
+  buyer_entity: string | null
+  address: string | null
+  city: string | null
+  state: string | null
+  country: string | null
+  mw_it: number | null
+  redundancy: string | null
+  cooling: string | null
+  elevation_ft: number | null
+  ambient_max_f: number | null
+  sound_limit_dba: number | null
+}
+
+export interface Project extends ProjectDetail {
   id: string
   name: string
   legend_frozen: boolean
+}
+
+export interface Contact {
+  id: string
+  name: string
+  function: string
+  accountability: string
+  org: string | null
+  email: string | null
+}
+
+export interface CapacityCheck {
+  project_mw_it: number | null
+  building_mw_it: number
+  buildings_with_capacity: number
+  buildings_total: number
+  reconciles: boolean
 }
 
 export interface ProjectLocation {
@@ -9,6 +42,7 @@ export interface ProjectLocation {
   code: string
   kind: string
   label: string | null
+  mw_it: number | null
 }
 
 export interface EquipmentType {

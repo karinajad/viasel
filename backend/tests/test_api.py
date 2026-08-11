@@ -208,3 +208,98 @@ def test_rom_basis_off_the_median_requires_a_reason() -> None:
         with SessionLocal() as s:
             s.query(DemandLine).filter(DemandLine.project_id == "APIBASIS").delete()
             s.commit()
+
+
+def test_project_detail_capacity_and_accountability() -> None:
+    p = client.post("/projects", json={"name": "APIPROJ"}).json()
+    try:
+        d = client.patch(f"/projects/{p['id']}", json={
+            "site_code": "DTW01", "mw_it": 88, "redundancy": "2N", "cooling": "air-cooled",
+            "elevation_ft": 6000, "ambient_max_f": 120, "sound_limit_dba": 70,
+        }).json()
+        assert d["mw_it"] == 88 and d["redundancy"] == "2N" and d["elevation_ft"] == 6000
+        # a partial patch leaves everything it didn't mention alone
+        assert client.patch(f"/projects/{p['id']}", json={"city": "Saline"}).json()["site_code"] == "DTW01"
+        # the vocabulary is closed, so inference can rely on it
+        assert client.patch(f"/projects/{p['id']}", json={"redundancy": "N+7"}).status_code == 400
+
+        # per-building capacity has to add up, or units-per-MW is wrong
+        for code, mw in (("C1", 30), ("C2", 30)):
+            client.post(f"/projects/{p['id']}/locations", json={"code": code, "kind": "building", "mw_it": mw})
+        cap = client.get(f"/projects/{p['id']}/capacity").json()
+        assert cap["building_mw_it"] == 60 and cap["project_mw_it"] == 88 and cap["reconciles"] is False
+        locs = client.get(f"/projects/{p['id']}/locations").json()
+        client.patch(f"/projects/{p['id']}/locations/{locs[0]['id']}", json={"mw_it": 58})
+        assert client.get(f"/projects/{p['id']}/capacity").json()["reconciles"] is True
+
+        c = client.post(f"/projects/{p['id']}/contacts",
+                        json={"name": "G. Singel", "function": "procurement", "accountability": "accountable"})
+        assert c.status_code == 201
+        assert client.post(f"/projects/{p['id']}/contacts",
+                           json={"name": "X", "function": "vibes"}).status_code == 400
+        assert len(client.get(f"/projects/{p['id']}/contacts").json()) == 1
+        # removal is soft — who signed off stays on the record
+        client.delete(f"/projects/{p['id']}/contacts/{c.json()['id']}")
+        assert client.get(f"/projects/{p['id']}/contacts").json() == []
+    finally:
+        with SessionLocal() as s:
+            for table in ("project_contact", "project_location", "legend_event"):
+                s.execute(text(f"delete from viasel.{table} where project_id = :i"), {"i": p["id"]})
+            s.execute(text("delete from viasel.project where id = :i"), {"i": p["id"]})
+            s.commit()
+
+
+def test_vendor_roster_is_one_record_per_firm_and_gates_bidding() -> None:
+    """Free-typed vendor names are why §11 reliability can't accumulate. One record fixes it."""
+    ph = client.post("/vendors", json={
+        "name": "T-Roster Distributor", "code": "TRD", "role": "distributor",
+        "oem_names": ["GE Prolec", "MCI"], "factory_country": "USA", "status": "preferred"}).json()
+    oem = client.post("/vendors", json={"name": "T-Roster OEM", "role": "oem"}).json()
+    try:
+        # the same firm cannot be entered twice under a different casing
+        assert client.post("/vendors", json={"name": "t-roster oem"}).status_code == 409
+        assert client.post("/vendors", json={"name": "T-Roster X", "role": "wizard"}).status_code == 400
+        assert ph["oem_names"] == ["GE Prolec", "MCI"]
+
+        # putting a vendor out of play is a decision, so it carries its reason
+        assert client.patch(f"/vendors/{oem['id']}", json={"status": "hold"}).status_code == 400
+        client.patch(f"/vendors/{oem['id']}", json={"status": "hold", "status_note": "no capacity"})
+        biddable = [v["name"] for v in client.get("/vendors", params={"biddable_only": True}).json()]
+        assert "T-Roster Distributor" in biddable and "T-Roster OEM" not in biddable
+
+        c = client.post(f"/vendors/{ph['id']}/contacts", json={"name": "A. Turner", "title": "President"})
+        assert c.status_code == 201
+        assert client.get(f"/vendors/{ph['id']}").json()["contacts"][0]["name"] == "A. Turner"
+
+        # a bid names a roster vendor, and one on hold is refused with the reason
+        line = client.post("/demand-lines/batch", json={"lines": [{
+            "project_id": "APIVEND", "qty": 12, "target_building": "C1", "rom_unit_price": 320000.0,
+            "spec_attributes": {"type_query": "Padmount Transformer", "denominator": "$/kVA", "size": 5000},
+        }]}).json()
+        client.post("/freeze", json={"line_ids": [line[0]["id"]], "project_id": "APIVEND",
+                                     "scope": "project", "actor": "t"})
+        group = client.get("/packages/candidates", params={"project": "APIVEND"}).json()["groups"][0]
+        pkg = client.post("/packages", json={"project_id": "APIVEND",
+                                             "demand_line_ids": group["demand_line_ids"]}).json()["package"]
+        r = client.post(f"/packages/{pkg['id']}/quotes", json={"vendor_id": ph["id"], "unit_price": 306074.0})
+        assert r.status_code == 201
+        row = r.json()["leveling"][0]
+        assert row["vendor"] == "T-Roster Distributor" and row["vendor_id"] == ph["id"]
+        assert client.get(f"/vendors/{ph['id']}").json()["bid_count"] == 1
+
+        held = client.post(f"/packages/{pkg['id']}/quotes", json={"vendor_id": oem["id"], "unit_price": 1.0})
+        assert held.status_code == 409 and "no capacity" in held.json()["detail"]
+    finally:
+        with SessionLocal() as s:
+            for q in (
+                "delete from viasel.scope_line where demand_line_id in (select id from viasel.demand_line where project_id='APIVEND')",
+                "delete from viasel.quote where sourcing_package_id in (select id from viasel.sourcing_package where project_id='APIVEND')",
+                "delete from viasel.package_line where sourcing_package_id in (select id from viasel.sourcing_package where project_id='APIVEND')",
+                "delete from viasel.sourcing_package where project_id='APIVEND'",
+                "delete from viasel.freeze_event where project_id='APIVEND'",
+                "delete from viasel.demand_line where project_id='APIVEND'",
+                "delete from viasel.vendor_contact where vendor_id in (select id from viasel.vendor where name like 'T-Roster%')",
+                "delete from viasel.vendor where name like 'T-Roster%'",
+            ):
+                s.execute(text(q))
+            s.commit()

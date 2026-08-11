@@ -42,6 +42,7 @@ class LevelingRow(BaseModel):
 
     quote_id: uuid.UUID
     vendor: str
+    vendor_id: uuid.UUID | None
     oem: str | None
     unit_price: float  # equipment only — not what the unit costs
     effective_unit: float  # all-in for this lot size, one-time cost amortized
@@ -89,7 +90,8 @@ class PackageDetail(BaseModel):
 
 
 class PackageQuoteCreate(BaseModel):
-    vendor: str
+    vendor: str | None = None  # free text, when the roster doesn't have them yet
+    vendor_id: uuid.UUID | None = None  # preferred: a vendor from the roster
     unit_price: float  # equipment, per unit
     oem: str | None = None
     lead_time_weeks: int | None = None

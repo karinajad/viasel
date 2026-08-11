@@ -208,7 +208,8 @@ class Quote(Base):
     sourcing_package_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey(f"{SCHEMA}.sourcing_package.id")
     )
-    vendor: Mapped[str] = mapped_column(String, nullable=False)
+    vendor: Mapped[str] = mapped_column(String, nullable=False)  # as typed, kept verbatim
+    vendor_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey(f"{SCHEMA}.vendor.id"))
     oem: Mapped[str | None] = mapped_column(String)
     unit_price: Mapped[float] = mapped_column(Numeric, nullable=False)
     lead_time_weeks: Mapped[int | None] = mapped_column(Integer)
@@ -253,12 +254,40 @@ class ScopeLine(Base):
 
 
 class Project(Base):
+    """A project, and the facts about it that let history be inferred onto it.
+
+    These are typed columns rather than a free-form bag because inference has to query
+    them: quantity suggestions need MW and topology, price needs jurisdiction and origin,
+    and spec qualification needs the site conditions that ruled real bids out.
+    """
+
     __tablename__ = "project"
     __table_args__ = {"schema": SCHEMA}
 
     id: Mapped[uuid.UUID] = _pk()
     name: Mapped[str] = mapped_column(String, unique=True, nullable=False)
     legend_frozen: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"), nullable=False)
+
+    # identity and title — custody follows title, and the holder is per project
+    site_code: Mapped[str | None] = mapped_column(String)  # e.g. DTW01
+    buyer_entity: Mapped[str | None] = mapped_column(String)  # the SPV that signs
+    address: Mapped[str | None] = mapped_column(String)
+    city: Mapped[str | None] = mapped_column(String)
+    state: Mapped[str | None] = mapped_column(String)  # drives tax jurisdiction
+    country: Mapped[str | None] = mapped_column(String)
+
+    # capacity and topology — the denominators quantity inference needs. Units per MW is
+    # meaningless without the redundancy: 2N doubles the electrical count for the same load.
+    mw_it: Mapped[float | None] = mapped_column(Numeric)
+    redundancy: Mapped[str | None] = mapped_column(String)  # N | N+1 | 2N | 2N+1
+    cooling: Mapped[str | None] = mapped_column(String)  # air-cooled | liquid | hybrid
+
+    # site conditions — these qualified and disqualified real bids, so they belong on the
+    # record rather than in someone's head at RFQ time
+    elevation_ft: Mapped[int | None] = mapped_column(Integer)
+    ambient_max_f: Mapped[int | None] = mapped_column(Integer)
+    sound_limit_dba: Mapped[int | None] = mapped_column(Integer)
+
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
@@ -273,6 +302,7 @@ class ProjectLocation(Base):
     code: Mapped[str] = mapped_column(String, nullable=False)  # e.g. C1, DH3
     kind: Mapped[str] = mapped_column(String, default="building", server_default=text("'building'"), nullable=False)
     label: Mapped[str | None] = mapped_column(String)
+    mw_it: Mapped[float | None] = mapped_column(Numeric)  # this building's share of the load
     active: Mapped[bool] = mapped_column(Boolean, default=True, server_default=text("true"), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
@@ -288,4 +318,87 @@ class LegendEvent(Base):
     action: Mapped[str] = mapped_column(String, nullable=False)  # freeze | thaw
     reason: Mapped[str | None] = mapped_column(String)
     actor: Mapped[str | None] = mapped_column(String)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class ProjectContact(Base):
+    """Who is accountable and responsible, by function.
+
+    Recorded, not enforced: there is no user or role model behind this yet, so this is a
+    signature ledger rather than a permission system. Saying so is the point — the award
+    memo and the COAP log both prove the ledger is what people actually chase.
+    """
+
+    __tablename__ = "project_contact"
+    __table_args__ = {"schema": SCHEMA}
+
+    id: Mapped[uuid.UUID] = _pk()
+    project_id: Mapped[uuid.UUID] = mapped_column(ForeignKey(f"{SCHEMA}.project.id"), nullable=False)
+    name: Mapped[str] = mapped_column(String, nullable=False)
+    function: Mapped[str] = mapped_column(String, nullable=False)  # procurement · electrical design · …
+    accountability: Mapped[str] = mapped_column(
+        String, default="responsible", server_default=text("'responsible'"), nullable=False
+    )  # accountable | responsible | consulted | informed
+    org: Mapped[str | None] = mapped_column(String)
+    email: Mapped[str | None] = mapped_column(String)
+    active: Mapped[bool] = mapped_column(
+        Boolean, default=True, server_default=text("true"), nullable=False
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class Vendor(Base):
+    """A vendor as a record, not a typed string.
+
+    Free-typed vendor names make "Eaton" and "Eaton Corp" two different vendors, which is
+    why vendor reliability (spec §11) can never accumulate: you cannot compare a quoted
+    lead time against an actual delivery if the two rows don't agree on who the vendor was.
+
+    The supply-chain fields are the ones the award form asks for, and they matter because
+    the executed corpus shows the route — distributor vs. direct, and which OEM behind it —
+    driving the price spread more than anything else.
+    """
+
+    __tablename__ = "vendor"
+    __table_args__ = {"schema": SCHEMA}
+
+    id: Mapped[uuid.UUID] = _pk()
+    name: Mapped[str] = mapped_column(String, unique=True, nullable=False)
+    code: Mapped[str | None] = mapped_column(String)  # e.g. EAT, PH — their own convention
+    role: Mapped[str] = mapped_column(
+        String, default="supplier", server_default=text("'supplier'"), nullable=False
+    )  # oem | distributor | integrator | supplier
+    oem_names: Mapped[list | None] = mapped_column(JSONB)  # who actually manufactures
+
+    factory_country: Mapped[str | None] = mapped_column(String)
+    factory_location: Mapped[str | None] = mapped_column(String)
+    integration_location: Mapped[str | None] = mapped_column(String)
+    sub_supplier: Mapped[str | None] = mapped_column(String)
+
+    status: Mapped[str] = mapped_column(
+        String, default="approved", server_default=text("'approved'"), nullable=False
+    )  # prospect | approved | preferred | hold | disqualified
+    status_note: Mapped[str | None] = mapped_column(String)
+    notes: Mapped[str | None] = mapped_column(String)
+    active: Mapped[bool] = mapped_column(
+        Boolean, default=True, server_default=text("true"), nullable=False
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class VendorContact(Base):
+    """Who to talk to at a vendor. The award memo names people, so the record should too."""
+
+    __tablename__ = "vendor_contact"
+    __table_args__ = {"schema": SCHEMA}
+
+    id: Mapped[uuid.UUID] = _pk()
+    vendor_id: Mapped[uuid.UUID] = mapped_column(ForeignKey(f"{SCHEMA}.vendor.id"), nullable=False)
+    name: Mapped[str] = mapped_column(String, nullable=False)
+    title: Mapped[str | None] = mapped_column(String)
+    email: Mapped[str | None] = mapped_column(String)
+    phone: Mapped[str | None] = mapped_column(String)
+    active: Mapped[bool] = mapped_column(
+        Boolean, default=True, server_default=text("true"), nullable=False
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

@@ -1,11 +1,13 @@
 import { Fragment, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { apiDelete, apiGet, apiPatch, apiPost } from './services/api'
+import { apiGet, apiPost } from './services/api'
 import DesignRegister from './DesignRegister'
 import SourcingFace from './Sourcing'
+import ProjectsFace from './Projects'
+import VendorsFace from './Vendors'
 import { STATE, TIER, count, describe, money } from './lib/format'
 import { resolveSpec, subTypesFor, unitTypeCodes } from './lib/equipment'
-import { byCode, locationOptions, nest } from './lib/locations'
+import { locationOptions } from './lib/locations'
 import type { DemandLineRow, EquipmentType, FreezeScopePreview, PricedDemandRead, Project, ProjectLocation, RomBand, RomPriceRequest } from './types/rom'
 
 const STOPS = [
@@ -17,7 +19,7 @@ const TABS = [
   { k: 'demand', label: 'Demand', live: true },
   { k: 'sourcing', label: 'Sourcing', live: true },
   { k: 'cost', label: 'Cost' }, { k: 'logistics', label: 'Logistics' },
-  { k: 'vendor', label: 'Vendor' }, { k: 'ops', label: 'Operations' },
+  { k: 'vendor', label: 'Vendors', live: true }, { k: 'ops', label: 'Operations' },
   { k: 'disposition', label: 'Disposition' }, { k: 'program', label: 'Program' },
 ]
 
@@ -55,7 +57,7 @@ export default function App() {
       {tab === 'sourcing' && <SourcingFace project={project} />}
       {tab === 'cost' && <Preview title="Cost / Finance — Reconciliation" phase="Phase 2 · the wedge" body="Committed vs. actual and exposure compute themselves and drill to the unit." mock="[ committed-vs-actual by cost code · every row drills to a unit ]" note="Catches the $1.279M gap across 52 executed POs/COs that took weeks to find by hand." />}
       {tab === 'logistics' && <Preview title="Logistics / Custody" phase="Phase 3" body="Every unit's location — factory · transit · warehouse · staged · installed — with exceptions flagged." mock="[ where-is-everything board · phone scan: receive · condition · zone ]" />}
-      {tab === 'vendor' && <Preview title="Vendor portal" phase="later" body="Report production stage, upload test reports & serials, mark shipped." mock="[ your scope · report status ]" note="Submitting = getting paid faster; ends four people chasing status." />}
+      {tab === 'vendor' && <VendorsFace />}
       {tab === 'ops' && <Preview title="Operations — Live Health" phase="Phase 4" body="Each unit green/yellow/red vs. its own day-zero baseline; one plain-English digest a day." mock="[ fleet health · '3 units drifting — UPS-07 battery trending warm' ]" />}
       {tab === 'disposition' && <Preview title="Disposition — the passport" phase="Phase 4" body="Scan a unit → its whole life on one page. Transfer hands the record to the next owner." mock="[ biography: spec · price · changes · storage · service · health ]" />}
       {tab === 'program' && <Preview title="Program — the rollup" phase="later" body="Across projects: covered · pending procurement · at risk · surplus vs. shortfall — every number drills to a line." mock="[ demand fulfillment by freeze set · net change by type ]" />}
@@ -73,135 +75,6 @@ function Preview({ title, phase, body, mock, note }: { title: string; phase: str
   )
 }
 
-function ProjectsFace({ project, onPick }: { project: string; onPick: (n: string) => void }) {
-  const qc = useQueryClient()
-  const projectsQ = useQuery({ queryKey: ['projects'], queryFn: () => apiGet<Project[]>('/projects') })
-  const projects = projectsQ.data ?? []
-  const [name, setName] = useState('')
-  const [thawReason, setThawReason] = useState('')
-  const createM = useMutation({
-    mutationFn: () => apiPost<Project>('/projects', { name }),
-    onSuccess: (p) => { setName(''); onPick(p.name); qc.invalidateQueries({ queryKey: ['projects'] }) },
-  })
-  const selected = projects.find((p) => p.name === project)
-  const frozen = selected?.legend_frozen ?? false
-  const freezeM = useMutation({
-    mutationFn: () => apiPost(`/projects/${selected?.id}/legend/freeze`, { reason: null, actor: 'web' }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['projects'] }),
-  })
-  const thawM = useMutation({
-    mutationFn: () => apiPost(`/projects/${selected?.id}/legend/thaw`, { reason: thawReason, actor: 'web' }),
-    onSuccess: () => { setThawReason(''); qc.invalidateQueries({ queryKey: ['projects'] }) },
-  })
-
-  return (
-    <div>
-      <div className="headline"><h2>Projects</h2><span className="pill live">LIVE · Supabase</span></div>
-      <p className="desc">Create a project, define its building / area codes, then freeze the legend so codes can't drift — codes stay in the project's crosswalk forever, and a thaw requires a stated reason.</p>
-      <div className="two">
-        <div className="card">
-          <h4>① Create / pick project</h4>
-          <label>New project name</label>
-          <div style={{ display: 'flex', gap: 8 }}>
-            <input className="fld" value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Mitten" />
-            <button className="btn pri" onClick={() => createM.mutate()} disabled={!name || createM.isPending}>Create</button>
-          </div>
-          <label style={{ marginTop: 14 }}>Existing</label>
-          <div>
-            {projects.length === 0 && <span style={{ color: 'var(--mut)', fontSize: 13 }}>none yet</span>}
-            {projects.map((p) => (
-              <button key={p.id} className="btn sm" style={{ marginRight: 6, marginBottom: 6, ...(p.name === project ? { borderColor: 'var(--accent)', color: 'var(--accent)' } : {}) }} onClick={() => onPick(p.name)}>{p.name}{p.legend_frozen ? ' 🔒' : ''}</button>
-            ))}
-          </div>
-        </div>
-        <div className="card">
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <h4 style={{ margin: 0 }}>② Building / area codes {selected ? `· ${selected.name}` : ''}</h4>
-            {selected && (frozen
-              ? <span style={{ fontSize: 11, color: 'var(--accent)', fontWeight: 600 }}>🔒 legend frozen</span>
-              : <button className="btn sm" onClick={() => freezeM.mutate()} disabled={freezeM.isPending}>Freeze legend</button>)}
-          </div>
-          {!selected ? <p style={{ color: 'var(--mut)', fontSize: 13, marginTop: 10 }}>Pick or create a project first.</p> : (
-            <>
-              {frozen && (
-                <div className="note" style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                  <span>Frozen — a reason is required to change codes.</span>
-                  <input className="si" style={{ flex: 1 }} placeholder="reason to thaw…" value={thawReason} onChange={(e) => setThawReason(e.target.value)} />
-                  <button className="btn sm danger" onClick={() => thawM.mutate()} disabled={!thawReason || thawM.isPending}>Thaw</button>
-                </div>
-              )}
-              <div style={{ marginTop: 10 }}><LocationEditor projectId={selected.id} frozen={frozen} /></div>
-            </>
-          )}
-        </div>
-      </div>
-    </div>
-  )
-}
-
-function LocationEditor({ projectId, frozen }: { projectId: string; frozen: boolean }) {
-  const qc = useQueryClient()
-  const locQ = useQuery({ queryKey: ['locations', projectId], queryFn: () => apiGet<ProjectLocation[]>(`/projects/${projectId}/locations`) })
-  const locs = locQ.data ?? []
-  const invalidate = () => qc.invalidateQueries({ queryKey: ['locations', projectId] })
-  const [code, setCode] = useState('')
-  const [kind, setKind] = useState('building')
-  const [labelText, setLabelText] = useState('')
-  const [editingId, setEditingId] = useState<string | null>(null)
-  const [editCode, setEditCode] = useState('')
-  const [editLabel, setEditLabel] = useState('')
-  const addM = useMutation({ mutationFn: () => apiPost(`/projects/${projectId}/locations`, { code, kind, label: labelText || null }), onSuccess: () => { setCode(''); setLabelText(''); invalidate() } })
-  const updateM = useMutation({ mutationFn: (id: string) => apiPatch(`/projects/${projectId}/locations/${id}`, { code: editCode, label: editLabel || null }), onSuccess: () => { setEditingId(null); invalidate() } })
-  const deleteM = useMutation({ mutationFn: (id: string) => apiDelete(`/projects/${projectId}/locations/${id}`), onSuccess: invalidate })
-  const startEdit = (l: ProjectLocation) => { setEditingId(l.id); setEditCode(l.code); setEditLabel(l.label ?? '') }
-
-  const { buildings, areas, parentOf, orphans } = nest(locs)
-
-  const row = (l: ProjectLocation, indent: number) => editingId === l.id ? (
-    <div style={{ display: 'flex', gap: 6, marginLeft: indent, alignItems: 'center', padding: '2px 0' }}>
-      <input className="si" style={{ width: 90 }} value={editCode} onChange={(e) => setEditCode(e.target.value)} />
-      <input className="si" style={{ width: 130 }} value={editLabel} onChange={(e) => setEditLabel(e.target.value)} placeholder="label" />
-      <button className="btn sm" onClick={() => updateM.mutate(l.id)} disabled={updateM.isPending}>Save</button>
-      <button className="btn sm" onClick={() => setEditingId(null)}>Cancel</button>
-    </div>
-  ) : (
-    <div style={{ marginLeft: indent, display: 'flex', gap: 8, alignItems: 'baseline', padding: '2px 0' }}>
-      <span>{indent ? '↳ ' : ''}<strong>{l.code}</strong> <span style={{ color: 'var(--mut)' }}>{l.kind}{l.label ? ` · ${l.label}` : ''}</span></span>
-      {!frozen && <button className="btn sm" onClick={() => startEdit(l)}>edit</button>}
-      {!frozen && <button className="btn sm danger" onClick={() => deleteM.mutate(l.id)} disabled={deleteM.isPending}>✕</button>}
-    </div>
-  )
-
-  return (
-    <div>
-      {!frozen && (
-        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 10 }}>
-          <input className="si" style={{ width: 90 }} placeholder="code (C1)" value={code} onChange={(e) => setCode(e.target.value)} />
-          <select className="si" value={kind} onChange={(e) => setKind(e.target.value)}><option value="building">building</option><option value="area">area</option></select>
-          <input className="si" style={{ width: 140 }} placeholder="label (Compute 1)" value={labelText} onChange={(e) => setLabelText(e.target.value)} />
-          <button className="btn sm" style={{ background: 'var(--ink)', color: '#fff', borderColor: 'var(--ink)' }} onClick={() => addM.mutate()} disabled={!code || addM.isPending}>Add</button>
-        </div>
-      )}
-      {locs.length === 0 && <div style={{ color: 'var(--mut)', fontSize: 12.5 }}>No codes yet.</div>}
-      {locs.length > 0 && (
-        <div style={{ fontSize: 13 }}>
-          {[...buildings].sort(byCode).map((b) => (
-            <div key={b.id} style={{ marginBottom: 4 }}>
-              {row(b, 0)}
-              {areas.filter((a) => parentOf(a)?.id === b.id).sort(byCode).map((a) => <div key={a.id}>{row(a, 16)}</div>)}
-            </div>
-          ))}
-          {orphans.length > 0 && (
-            <div style={{ marginTop: 6 }}>
-              <span style={{ color: 'var(--mut)', fontStyle: 'italic' }}>unassigned areas (no matching building code)</span>
-              {[...orphans].sort(byCode).map((a) => <div key={a.id}>{row(a, 16)}</div>)}
-            </div>
-          )}
-        </div>
-      )}
-    </div>
-  )
-}
 
 function DemandFace({ project, projectId }: { project: string; projectId?: string }) {
   const [mode, setMode] = useState<'design' | 'rom'>('design')
