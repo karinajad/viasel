@@ -11,6 +11,44 @@ class RomPriceRequest(BaseModel):
     escalation_pct: float = 0.0
 
 
+class Comparable(BaseModel):
+    """One executed line behind a band — the receipt, not a summary of receipts."""
+
+    supplier: str | None
+    oem: str | None
+    status: str | None
+    spec: str | None
+    size: float | None
+    per_denominator: float  # its own all-in, normalized — how it compares to the others
+    base_unit: float | None
+    services_unit: float | None
+    tax_pct: float | None
+    source_ref: str | None
+
+
+class ComparableGroup(BaseModel):
+    """Comparables sharing a supply route.
+
+    The route matters because it is what drives the spread: a distributor sourcing a
+    different OEM is not the same buy as going direct, and averaging the two produces a
+    number that describes neither. Grouping also stops the median being decided by which
+    route happens to have more rows in the corpus.
+    """
+
+    route: str  # "supplier · oem"
+    supplier: str | None
+    oem: str | None
+    count: int
+    per_denom_low: float
+    per_denom_mid: float
+    per_denom_high: float
+    unit_low: float  # scaled to the requested size, same adjustments as the band
+    unit_mid: float
+    unit_high: float
+    layers: dict[str, float]  # base · services · tax_pct, from this route's own history
+    comparables: list[Comparable]
+
+
 class RomBand(BaseModel):
     """A ROM price band — a byproduct of the executed record, not a separate estimate."""
 
@@ -29,6 +67,10 @@ class RomBand(BaseModel):
 
     layers: dict[str, float]  # base · services · freight · tariff_pct · tax_pct · escalation_pct
     note: str | None = None
+
+    # the receipts behind the number, grouped by supply route. Freight and tariff are NOT in
+    # the corpus — they are assumptions passed in; only base/services/tax come from history.
+    groups: list[ComparableGroup] = []
 
 
 class RomBatchLine(BaseModel):

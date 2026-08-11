@@ -1,7 +1,7 @@
 import uuid
 from datetime import date, datetime
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class EquipmentTypeRead(BaseModel):
@@ -26,6 +26,18 @@ class DemandLineCreate(BaseModel):
     rom_unit_price: float | None = None
     rom_confidence: str | None = None
     rom_comparables_count: int | None = None
+    rom_basis: str | None = None  # mid | low | high | route:<name>
+    rom_note: str | None = None
+
+    @model_validator(mode="after")
+    def _basis_off_default_needs_a_reason(self) -> "DemandLineCreate":
+        # same house rule as thawing a freeze or ruling out a bid: departing from the
+        # default is allowed, silently departing from it is not
+        if self.rom_basis and self.rom_basis != "mid" and not (self.rom_note or "").strip():
+            raise ValueError(
+                f"a ROM taken at '{self.rom_basis}' instead of the median needs a stated reason"
+            )
+        return self
 
 
 class DemandLineBatchCreate(BaseModel):
@@ -49,6 +61,8 @@ class DemandLineRead(BaseModel):
     required_by_date: date | None
     rom_unit_price: float | None
     rom_confidence: str | None
+    rom_basis: str | None
+    rom_note: str | None
     created_at: datetime
 
 

@@ -10,14 +10,14 @@ corpus query per distinct (type, denominator), then `rollup` totals the bands.
 """
 
 from collections import Counter
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from statistics import median
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models import ExecutedScopeLine
-from app.schemas.rom import RomBand, RomBatchLine, RomRollup
+from app.schemas.rom import Comparable, ComparableGroup, RomBand, RomBatchLine, RomRollup
 
 # weakest → strongest; a total is only as good as its weakest input
 TIER_ORDER = ("none", "low", "medium", "high")
@@ -49,6 +49,62 @@ def _comparables(session: Session, type_query: str, denominator: str) -> list[Ex
             )
         )
     )
+
+
+def _route(r: ExecutedScopeLine) -> tuple[str | None, str | None]:
+    """Who you buy it from, and who made it. A distributor sourcing a different OEM is a
+    different buy, and the corpus shows that difference dwarfing every other variable."""
+    return (r.supplier, r.oem)
+
+
+def _groups(
+    pool: Sequence[ExecutedScopeLine],
+    size: float,
+    scale: Callable[[float], float],
+) -> list[ComparableGroup]:
+    """The receipts behind the band, grouped by supply route and priced at this size."""
+    by_route: dict[tuple[str | None, str | None], list[ExecutedScopeLine]] = {}
+    for r in pool:
+        by_route.setdefault(_route(r), []).append(r)
+
+    out = []
+    for (supplier, oem), rows in by_route.items():
+        per = sorted(_all_in_per_denom(r) for r in rows)
+        lo, mid, hi = per[0], median(per), per[-1]
+        out.append(
+            ComparableGroup(
+                route=" · ".join(x for x in (supplier, oem) if x) or "unattributed",
+                supplier=supplier,
+                oem=oem,
+                count=len(rows),
+                per_denom_low=round(lo, 2),
+                per_denom_mid=round(mid, 2),
+                per_denom_high=round(hi, 2),
+                unit_low=round(scale(lo), 2),
+                unit_mid=round(scale(mid), 2),
+                unit_high=round(scale(hi), 2),
+                layers={
+                    # only these three come from the record; freight and tariff are assumptions
+                    "base": round(median([_f(r.base_unit) / (_f(r.size, 1.0) or 1.0) for r in rows]) * size, 2),
+                    "services": round(median([_f(r.services_unit) for r in rows]), 2),
+                    "tax_pct": round(median([_f(r.tax_pct) for r in rows]), 5),
+                },
+                comparables=[
+                    Comparable(
+                        supplier=r.supplier, oem=r.oem, status=r.status, spec=r.spec,
+                        size=_f(r.size) if r.size is not None else None,
+                        per_denominator=round(_all_in_per_denom(r), 2),
+                        base_unit=_f(r.base_unit) if r.base_unit is not None else None,
+                        services_unit=_f(r.services_unit) if r.services_unit is not None else None,
+                        tax_pct=_f(r.tax_pct) if r.tax_pct is not None else None,
+                        source_ref=r.source_ref,
+                    )
+                    for r in sorted(rows, key=_all_in_per_denom)
+                ],
+            )
+        )
+    out.sort(key=lambda g: g.per_denom_mid)
+    return out
 
 
 def _band(
@@ -116,6 +172,7 @@ def _band(
         layers=layers,
         note=("comparables are proposals/ROM, not executed — treat as low confidence"
               if fallback else None),
+        groups=_groups(pool, size, scale),
     )
 
 

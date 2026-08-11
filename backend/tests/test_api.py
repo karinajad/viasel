@@ -1,5 +1,6 @@
 """API tests via TestClient. Read-only endpoints + a create that cleans up after itself."""
 
+import json
 import uuid
 
 from fastapi.testclient import TestClient
@@ -185,4 +186,25 @@ def test_package_candidates_quote_and_award_then_cleanup() -> None:
             s.execute(text("delete from viasel.sourcing_package where project_id = :p"), {"p": project})
             s.execute(text("delete from viasel.freeze_event where project_id = :p"), {"p": project})
             s.execute(text("delete from viasel.demand_line where project_id = :p"), {"p": project})
+            s.commit()
+
+
+def test_rom_basis_off_the_median_requires_a_reason() -> None:
+    base = {"project_id": "APIBASIS", "qty": 4, "rom_unit_price": 316599.0}
+    try:
+        bad = client.post("/demand-lines", json={**base, "rom_basis": "route:Parrish Hare"})
+        assert bad.status_code == 422
+        assert "needs a stated reason" in json.dumps(bad.json())
+
+        ok = client.post("/demand-lines", json={
+            **base, "rom_basis": "route:Parrish Hare", "rom_note": "integrator route on this campus"})
+        assert ok.status_code == 201
+        assert ok.json()["rom_basis"] == "route:Parrish Hare"
+        assert ok.json()["rom_note"] == "integrator route on this campus"
+
+        # the default needs no ceremony
+        assert client.post("/demand-lines", json={**base, "rom_basis": "mid"}).status_code == 201
+    finally:
+        with SessionLocal() as s:
+            s.query(DemandLine).filter(DemandLine.project_id == "APIBASIS").delete()
             s.commit()

@@ -89,6 +89,38 @@ export interface DemandLineCreate {
   rom_unit_price: number | null
   rom_confidence: string | null
   rom_comparables_count: number | null
+  /** which point of the band was taken, and why — the grid takes the default and sends neither */
+  rom_basis?: string
+  rom_note?: string | null
+}
+
+export interface Comparable {
+  supplier: string | null
+  oem: string | null
+  status: string | null
+  spec: string | null
+  size: number | null
+  per_denominator: number
+  base_unit: number | null
+  services_unit: number | null
+  tax_pct: number | null
+  source_ref: string | null
+}
+
+/** Comparables sharing a supply route — what actually drives the spread. */
+export interface ComparableGroup {
+  route: string
+  supplier: string | null
+  oem: string | null
+  count: number
+  per_denom_low: number
+  per_denom_mid: number
+  per_denom_high: number
+  unit_low: number
+  unit_mid: number
+  unit_high: number
+  layers: Record<string, number>
+  comparables: Comparable[]
 }
 
 export interface RomBand {
@@ -104,6 +136,7 @@ export interface RomBand {
   extended_mid: number | null
   layers: Record<string, number>
   note: string | null
+  groups: ComparableGroup[]
 }
 
 /** What a freeze at a given scope would cover, resolved server-side. */

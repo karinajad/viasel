@@ -90,6 +90,10 @@ class DemandLine(Base):
     rom_unit_price: Mapped[float | None] = mapped_column(Numeric)
     rom_confidence: Mapped[str | None] = mapped_column(String)
     rom_comparables_count: Mapped[int | None] = mapped_column(Integer)
+    # which point of the band was taken, and why. A median is count-weighted by how the
+    # corpus happened to be collected, so departing from it is a judgment worth recording.
+    rom_basis: Mapped[str | None] = mapped_column(String)  # mid | low | high | route:<name>
+    rom_note: Mapped[str | None] = mapped_column(String)
     revision: Mapped[int] = mapped_column(Integer, default=1, server_default=text("1"), nullable=False)
     state: Mapped[str] = mapped_column(
         String, default="drafted", server_default=text("'drafted'"), nullable=False

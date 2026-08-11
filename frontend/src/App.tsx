@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { Fragment, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { apiDelete, apiGet, apiPatch, apiPost } from './services/api'
 import RomGrid from './RomGrid'
@@ -239,6 +239,9 @@ function QuickPrice({ project, projectId }: { project: string; projectId?: strin
   const [locId, setLocId] = useState('')
   const [escalation, setEscalation] = useState(0)
   const [tariff, setTariff] = useState(0)
+  const [basis, setBasis] = useState('mid')
+  const [romNote, setRomNote] = useState('')
+  const [showReceipts, setShowReceipts] = useState(false)
   const subs = subTypesFor(types, type)
   const { row, subType: effSub, size, denominator: denom } = resolveSpec(types, type, sub)
 
@@ -250,14 +253,23 @@ function QuickPrice({ project, projectId }: { project: string; projectId?: strin
   const locOpts = locationOptions(locQ.data ?? [])
   const loc = locOpts.find((o) => o.id === locId)
 
-  const priceM = useMutation({ mutationFn: (r: RomPriceRequest) => apiPost<RomBand>('/rom/price', r) })
+  const priceM = useMutation({
+    mutationFn: (r: RomPriceRequest) => apiPost<RomBand>('/rom/price', r),
+    onSuccess: () => { setBasis('mid'); setRomNote('') },
+  })
   const band = priceM.data
+  const chosenGroup = band?.groups.find((g) => `route:${g.route}` === basis)
+  const chosenUnit = chosenGroup ? chosenGroup.unit_mid
+    : basis === 'low' ? band?.unit_low : basis === 'high' ? band?.unit_high : band?.unit_mid
+  const noteRequired = basis !== 'mid'
   const saveM = useMutation({
     mutationFn: () => apiPost<DemandLineRow>('/demand-lines', {
       project_id: project, qty: Number(qty), equipment_type_id: row?.id ?? null,
       spec_attributes: { type_query: type, denominator: denom, size, sub: effSub },
       target_building: loc?.building ?? null, target_area: loc?.area ?? null,
-      rom_unit_price: band?.unit_mid ?? null, rom_confidence: band?.confidence_tier ?? null, rom_comparables_count: band?.comparables_count ?? null,
+      rom_unit_price: chosenUnit ?? null, rom_confidence: band?.confidence_tier ?? null,
+      rom_comparables_count: chosenGroup?.count ?? band?.comparables_count ?? null,
+      rom_basis: basis, rom_note: romNote.trim() || null,
     }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['demand-lines'] }),
   })
@@ -313,7 +325,16 @@ function QuickPrice({ project, projectId }: { project: string; projectId?: strin
             <div className="nums"><span>{money(band.unit_low)}</span><span className="mid">{money(band.unit_mid)}</span><span>{money(band.unit_high)}</span></div>
             <div className="track" />
             <div style={{ fontSize: 12, color: 'var(--mut)' }}>per unit ({band.denominator}) · extended <strong>{money(band.extended_mid)}</strong> (×{band.qty})</div>
-            <div style={{ marginTop: 10, fontSize: 13 }}>Confidence: <strong style={{ color: TIER[band.confidence_tier] }}>{band.confidence_tier}</strong> · {band.comparables_count} comparables</div>
+            <div style={{ marginTop: 10, fontSize: 13 }}>
+              Confidence: <strong style={{ color: TIER[band.confidence_tier] }}>{band.confidence_tier}</strong> · {count(band.comparables_count, 'comparable')}
+              {band.groups.length > 1 && <span style={{ color: 'var(--amber)' }}> across {count(band.groups.length, 'supply route')}</span>}
+            </div>
+            {band.groups.length > 1 && (
+              <div className="note" style={{ marginTop: 8 }}>
+                These comparables aren’t one population. The mid is a median, so it’s weighted by how many rows
+                each route happens to have — not by which route you’re buying through. Pick the one that fits.
+              </div>
+            )}
             {(!!band.layers.escalation_pct || !!band.layers.tariff_pct) && (
               <div style={{ fontSize: 11.5, color: 'var(--mut)', marginTop: 4 }}>
                 includes
@@ -323,7 +344,77 @@ function QuickPrice({ project, projectId }: { project: string; projectId?: strin
               </div>
             )}
             {band.note && <div className="note">{band.note}</div>}
-            <button className="btn" style={{ marginTop: 12, width: '100%', borderColor: 'var(--accent)', color: 'var(--accent)' }} onClick={() => saveM.mutate()} disabled={saveM.isPending || band.unit_mid == null}>{saveM.isPending ? 'Saving…' : 'Save as demand line ▸'}</button>
+              <div style={{ marginTop: 12, borderTop: '1px solid var(--soft)', paddingTop: 10 }}>
+                <label style={{ margin: '0 0 5px' }}>Price this at</label>
+                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                  {[['mid', 'median of all'], ['low', 'lowest'], ['high', 'highest']].map(([k, lbl]) => (
+                    <button key={k} className={`btn sm${basis === k ? ' pri' : ''}`} onClick={() => setBasis(k)}>{lbl}</button>
+                  ))}
+                  {band.groups.map((g) => (
+                    <button key={g.route} className={`btn sm${basis === `route:${g.route}` ? ' pri' : ''}`}
+                      title={`${g.count} comparables · ${money(g.per_denom_low)}–${money(g.per_denom_high)} per ${band.denominator.replace('$/', '')}`}
+                      onClick={() => setBasis(`route:${g.route}`)}>
+                      {g.route} ({g.count})
+                    </button>
+                  ))}
+                </div>
+                <div style={{ marginTop: 8, fontSize: 13, fontVariantNumeric: 'tabular-nums' }}>
+                  Taking <strong>{money(chosenUnit)}</strong>/unit
+                  {chosenGroup && <span style={{ color: 'var(--mut)' }}> — {chosenGroup.route}, {count(chosenGroup.count, 'comparable')} within {money(chosenGroup.unit_low)}–{money(chosenGroup.unit_high)}</span>}
+                </div>
+                {noteRequired && (
+                  <>
+                    <label style={{ marginTop: 8 }}>Why this basis <span style={{ color: 'var(--red)' }}>*</span></label>
+                    <input className="fld" value={romNote} onChange={(e) => setRomNote(e.target.value)}
+                      placeholder="e.g. buying through the integrator on this campus" />
+                  </>
+                )}
+                <button className="btn" style={{ marginTop: 10, width: '100%', borderColor: 'var(--accent)', color: 'var(--accent)' }}
+                  onClick={() => saveM.mutate()}
+                  disabled={saveM.isPending || chosenUnit == null || (noteRequired && !romNote.trim())}>
+                  {saveM.isPending ? 'Saving…' : 'Save as demand line ▸'}
+                </button>
+                {noteRequired && !romNote.trim() && (
+                  <div style={{ fontSize: 11, color: 'var(--mut)', marginTop: 5 }}>
+                    Taking anything other than the median needs a reason — same rule as thawing a freeze.
+                  </div>
+                )}
+                {saveM.isError && <div className="note">{String(saveM.error).replace(/^Error:\s*/, '')}</div>}
+              </div>
+
+              <button type="button" className="disc" onClick={() => setShowReceipts(!showReceipts)}>
+                {showReceipts ? '▾' : '▸'} The comparables behind this
+                <span className="hint">base, services and tax come from the record; freight and tariff are your assumptions</span>
+              </button>
+              {showReceipts && (
+                <table style={{ marginTop: 6 }}>
+                  <thead><tr><th>Route / line</th><th className="num">size</th><th className="num">per {band.denominator.replace('$/', '')}</th><th className="num">base</th><th className="num">services</th><th className="num">tax</th></tr></thead>
+                  <tbody>
+                    {band.groups.map((g) => (
+                      <Fragment key={g.route}>
+                        <tr style={{ background: 'var(--soft)' }}>
+                          <td><strong>{g.route}</strong> <span style={{ color: 'var(--mut)' }}>· {count(g.count, 'line')}</span></td>
+                          <td className="num" />
+                          <td className="num"><strong>{money(g.per_denom_mid)}</strong></td>
+                          <td className="num">{money(g.layers.base)}</td>
+                          <td className="num">{money(g.layers.services)}</td>
+                          <td className="num">{(g.layers.tax_pct * 100).toFixed(2)}%</td>
+                        </tr>
+                        {g.comparables.map((c, i) => (
+                          <tr key={i} style={{ color: 'var(--mut)' }}>
+                            <td style={{ paddingLeft: 18 }}>{c.spec ?? '—'} <span style={{ fontSize: 11 }}>{c.status}</span></td>
+                            <td className="num">{c.size?.toLocaleString() ?? '—'}</td>
+                            <td className="num">{money(c.per_denominator)}</td>
+                            <td className="num">{money(c.base_unit)}</td>
+                            <td className="num">{money(c.services_unit)}</td>
+                            <td className="num">{c.tax_pct == null ? '—' : `${(c.tax_pct * 100).toFixed(2)}%`}</td>
+                          </tr>
+                        ))}
+                      </Fragment>
+                    ))}
+                  </tbody>
+                </table>
+              )}
           </div>
         )}
       </div>

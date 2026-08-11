@@ -89,3 +89,38 @@ def test_rollup_of_nothing_is_honest() -> None:
     roll = rollup([])
     assert roll.line_count == 0 and roll.total_mid == 0.0
     assert roll.confidence_tier == "none"
+
+
+def test_comparables_are_grouped_by_supply_route() -> None:
+    """The 5000kVA transformer band is two populations, not one.
+
+    Six distributor lines sit within 5% of each other; two direct-from-OEM lines are 1.6x
+    higher. The median is therefore decided by which route has more rows in the corpus —
+    which is why the groups have to be visible and selectable.
+    """
+    with SessionLocal() as s:
+        band = price(s, type_query="Transformer", denominator="$/kVA", size=5000, qty=12)
+
+    assert len(band.groups) >= 2
+    # cheapest route first, and every comparable is accounted for
+    assert band.groups == sorted(band.groups, key=lambda g: g.per_denom_mid)
+    assert sum(g.count for g in band.groups) == band.comparables_count
+
+    routes = {g.route: g for g in band.groups}
+    ph = next(g for r, g in routes.items() if "Parrish" in r)
+    eaton = next(g for r, g in routes.items() if "Eaton" in r)
+
+    # each route is tighter than the band that averages them
+    assert ph.per_denom_high / ph.per_denom_low < 1.1
+    assert eaton.per_denom_mid > ph.per_denom_high * 1.5
+    # only history-backed layers per group — freight and tariff are assumptions, not record
+    assert set(ph.layers) == {"base", "services", "tax_pct"}
+    # the receipts are attached, cheapest first
+    assert [c.per_denominator for c in ph.comparables] == sorted(c.per_denominator for c in ph.comparables)
+    assert all(c.supplier == ph.supplier for c in ph.comparables)
+
+
+def test_a_band_with_no_comparables_has_no_groups() -> None:
+    with SessionLocal() as s:
+        band = price(s, type_query="Zorptron 9000", denominator="$/kW", size=100, qty=1)
+    assert band.groups == []
