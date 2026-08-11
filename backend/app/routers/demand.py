@@ -15,6 +15,8 @@ from app.schemas.demand import (
     FreezeEventRead,
     FreezeRequest,
     FreezeScopePreview,
+    PricedDemandRead,
+    PriceDemandRequest,
     ThawEventRead,
     ThawLineRequest,
     ThawRequest,
@@ -28,6 +30,7 @@ from app.services.freeze import (
     thaw,
     thaw_line,
 )
+from app.services.rom import price_demand_lines
 
 router = APIRouter(tags=["demand"], dependencies=[Depends(require_token)])
 
@@ -73,6 +76,20 @@ def list_demand_lines(
     if state:
         stmt = stmt.where(DemandLine.state == state)
     return list(session.scalars(stmt.order_by(DemandLine.created_at)))
+
+
+@router.post("/demand-lines/price", response_model=PricedDemandRead, status_code=200)
+def price_demand(
+    body: PriceDemandRequest, session: Session = Depends(get_session)
+) -> "PricedDemandRead":
+    """ROM the project's drafted demand in place — pricing as a byproduct, re-runnable."""
+    lines, roll, no_physics = price_demand_lines(
+        session, body.project_id, only_unpriced=body.only_unpriced
+    )
+    session.commit()
+    for dl in lines:
+        session.refresh(dl)
+    return PricedDemandRead(priced=lines, rollup=roll, skipped_no_physics=no_physics)  # type: ignore[arg-type]
 
 
 @router.get("/freeze/preview", response_model=FreezeScopePreview)

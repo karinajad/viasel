@@ -1,12 +1,12 @@
 import { Fragment, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { apiDelete, apiGet, apiPatch, apiPost } from './services/api'
-import RomGrid from './RomGrid'
+import DesignRegister from './DesignRegister'
 import SourcingFace from './Sourcing'
 import { STATE, TIER, count, describe, money } from './lib/format'
 import { resolveSpec, subTypesFor, unitTypeCodes } from './lib/equipment'
 import { byCode, locationOptions, nest } from './lib/locations'
-import type { DemandLineRow, EquipmentType, FreezeScopePreview, Project, ProjectLocation, RomBand, RomPriceRequest } from './types/rom'
+import type { DemandLineRow, EquipmentType, FreezeScopePreview, PricedDemandRead, Project, ProjectLocation, RomBand, RomPriceRequest } from './types/rom'
 
 const STOPS = [
   ['DEMAND', 1], ['SOURCING', 1], ['AGREEMENT', 0], ['PRODUCTION', 0],
@@ -204,25 +204,31 @@ function LocationEditor({ projectId, frozen }: { projectId: string; frozen: bool
 }
 
 function DemandFace({ project, projectId }: { project: string; projectId?: string }) {
-  const [mode, setMode] = useState<'grid' | 'quick'>('grid')
+  const [mode, setMode] = useState<'design' | 'rom'>('design')
   return (
     <div>
-      <div className="headline"><h2>Demand Management — Design &amp; ROM</h2><span className="pill live">LIVE · Supabase</span></div>
-      <p className="desc">Price requirements from executed history, save them as demand, freeze them. No sourcing here — frozen demand flows to the Sourcing face.</p>
-
-      <div className="seg" style={{ marginBottom: 12 }}>
-        <button className={mode === 'grid' ? 'on' : ''} onClick={() => setMode('grid')}>Line-item list</button>
-        <button className={mode === 'quick' ? 'on' : ''} onClick={() => setMode('quick')}>Quick price</button>
-      </div>
-      <p className="desc" style={{ marginTop: -6 }}>
-        {mode === 'grid'
-          ? 'Stack the whole scope — type · size · qty · location — and ROM the list in one pass into a work-in-progress project ROM.'
-          : 'One requirement, one band, with the full layer breakdown. Same engine, same history.'}
+      <div className="headline"><h2>Demand</h2><span className="pill live">LIVE · Supabase</span></div>
+      <p className="desc">
+        Two acts, deliberately apart. Design declares what is needed; the ROM prices it from executed
+        history. Freeze turns the register into the project's procurement list — and only frozen demand
+        is sourceable.
       </p>
 
-      {mode === 'grid' ? <RomGrid project={project} projectId={projectId} /> : <QuickPrice project={project} projectId={projectId} />}
+      <div className="seg" style={{ marginBottom: 12 }}>
+        <button className={mode === 'design' ? 'on' : ''} onClick={() => setMode('design')}>Design register</button>
+        <button className={mode === 'rom' ? 'on' : ''} onClick={() => setMode('rom')}>ROM</button>
+      </div>
+      <p className="desc" style={{ marginTop: -6 }}>
+        {mode === 'design'
+          ? 'What is needed, where, how many, by when — and which items are long-lead. No cost.'
+          : 'Price the register from executed history, or price one item deliberately with its comparables in view.'}
+      </p>
 
-      <div style={{ marginTop: 16 }}><DemandBoard project={project} projectId={projectId} /></div>
+      {mode === 'design'
+        ? <DesignRegister project={project} projectId={projectId} />
+        : <QuickPrice project={project} projectId={projectId} />}
+
+      <div style={{ marginTop: 16 }}><DemandBoard project={project} projectId={projectId} showRomPass={mode === 'rom'} /></div>
     </div>
   )
 }
@@ -422,7 +428,7 @@ function QuickPrice({ project, projectId }: { project: string; projectId?: strin
   )
 }
 
-function DemandBoard({ project, projectId }: { project: string; projectId?: string }) {
+function DemandBoard({ project, projectId, showRomPass }: { project: string; projectId?: string; showRomPass?: boolean }) {
   const qc = useQueryClient()
   const [scope, setScope] = useState('project')
   const [scopeRef, setScopeRef] = useState('')
@@ -463,6 +469,12 @@ function DemandBoard({ project, projectId }: { project: string; projectId?: stri
   })
   const thawM = useMutation({ mutationFn: (id: string) => apiPost(`/demand-lines/${id}/thaw`, { reason: null }), onSuccess: invalidate })
   const covered = new Set(preview?.demand_line_ids ?? [])
+  // the ROM as a pass over the record, not a step inside data entry — and re-runnable
+  const priceM = useMutation({
+    mutationFn: () => apiPost<PricedDemandRead>('/demand-lines/price', { project_id: project, only_unpriced: true }),
+    onSuccess: invalidate,
+  })
+  const unpriced = lines.filter((d) => d.state === 'drafted' && d.rom_unit_price == null)
 
   return (
     <div className="card">
@@ -487,6 +499,24 @@ function DemandBoard({ project, projectId }: { project: string; projectId?: stri
           </button>
         </div>
       </div>
+      {showRomPass && (
+        <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', margin: '6px 0 8px' }}>
+          <button className="btn pri sm" onClick={() => priceM.mutate()} disabled={unpriced.length === 0 || priceM.isPending}>
+            {priceM.isPending ? 'Pricing…' : `Price ${count(unpriced.length, 'unpriced line')} ▸`}
+          </button>
+          <span style={{ fontSize: 11, color: 'var(--mut)' }}>
+            {unpriced.length === 0
+              ? 'Every drafted line on the register is priced. Re-run after the corpus grows.'
+              : 'Takes the median of all comparables. For a considered basis, use the panel above one item at a time.'}
+          </span>
+          {priceM.data && priceM.data.skipped_no_physics > 0 && (
+            <span style={{ fontSize: 11, color: 'var(--amber)' }}>
+              {count(priceM.data.skipped_no_physics, 'line')} had no equipment type — real demand, nothing to price against.
+            </span>
+          )}
+          {priceM.isError && <span style={{ fontSize: 11, color: 'var(--red)' }}>{String(priceM.error).replace(/^Error:\s*/, '')}</span>}
+        </div>
+      )}
       {preview && (
         <div style={{ fontSize: 12, color: preview.line_count === 0 ? 'var(--mut)' : 'var(--ink)', margin: '6px 0 2px' }}>
           {preview.line_count === 0
@@ -500,7 +530,7 @@ function DemandBoard({ project, projectId }: { project: string; projectId?: stri
       {lines.length === 0 && <p style={{ color: 'var(--mut)', fontSize: 13 }}>No demand yet — price a requirement and save it.</p>}
       {lines.length > 0 && (
         <table style={{ marginTop: 8 }}>
-          <thead><tr><th style={{ width: 26 }} /><th>Requirement</th><th>Building</th><th className="num">Qty</th><th className="num">ROM / unit</th><th>Status</th><th /></tr></thead>
+          <thead><tr><th style={{ width: 26 }} /><th>Requirement</th><th>Building</th><th className="num">Qty</th><th>Required by</th><th className="num">ROM / unit</th><th>Status</th><th /></tr></thead>
           <tbody>
             {lines.map((d) => (
               <tr key={d.id}>
@@ -511,8 +541,12 @@ function DemandBoard({ project, projectId }: { project: string; projectId?: stri
                 </td>
                 <td>{describe(d) || '—'}</td>
                 <td>{d.target_building ?? '—'}{d.target_area ? ` · ${d.target_area}` : ''}</td>
-                <td className="num">{d.qty}</td>
-                <td className="num">{money(d.rom_unit_price)}</td>
+                <td className="num">{d.qty}{d.is_lle && <span title="long-lead equipment" style={{ color: 'var(--amber)', fontWeight: 700 }}> ⌛</span>}</td>
+                <td style={{ color: d.required_by_date ? 'var(--ink)' : 'var(--line)' }}>{d.required_by_date ?? '—'}</td>
+                <td className="num" title={d.rom_note ?? undefined}>
+                  {money(d.rom_unit_price)}
+                  {d.rom_basis && d.rom_basis !== 'mid' && <span style={{ color: 'var(--amber)', fontSize: 10 }}> ✱</span>}
+                </td>
                 <td><span className="st" style={{ background: STATE[d.state] ?? '#6b7280' }}>{d.state}</span></td>
                 <td className="num">{(d.state === 'frozen' || d.state === 'matched') && <button className="btn sm danger" onClick={() => thawM.mutate(d.id)} disabled={thawM.isPending}>Thaw</button>}</td>
               </tr>
@@ -521,9 +555,10 @@ function DemandBoard({ project, projectId }: { project: string; projectId?: stri
           <tfoot>
             <tr>
               <td colSpan={3} style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '.05em', color: 'var(--mut)' }}>
-                Board total · {lines.length} lines
+                Board total · {count(lines.length, 'line')}
               </td>
               <td className="num"><strong>{lines.reduce((n, d) => n + d.qty, 0)}</strong></td>
+              <td />
               <td className="num" colSpan={3} style={{ fontVariantNumeric: 'tabular-nums' }}>
                 <strong>{money(lines.reduce((n, d) => n + (d.rom_unit_price ?? 0) * d.qty, 0))}</strong>
                 <span style={{ color: 'var(--mut)', fontWeight: 400, fontSize: 11 }}> extended at ROM</span>

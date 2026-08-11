@@ -16,7 +16,7 @@ from statistics import median
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models import ExecutedScopeLine
+from app.models import DemandLine, ExecutedScopeLine
 from app.schemas.rom import Comparable, ComparableGroup, RomBand, RomBatchLine, RomRollup
 
 # weakest → strongest; a total is only as good as its weakest input
@@ -248,3 +248,52 @@ def rollup(bands: Sequence[RomBand]) -> RomRollup:
         ),
         tier_counts=dict(tier_counts),
     )
+
+
+def price_demand_lines(
+    session: Session, project_id: str, *, only_unpriced: bool = True
+) -> tuple[list[DemandLine], RomRollup, int]:
+    """Price demand that already exists — the ROM as a byproduct of the record.
+
+    Demand capture answers what is needed and where; this answers what it should cost.
+    Two different acts, and pricing is the derived one, so it runs over the record rather
+    than sitting inside data entry. That also makes it re-runnable: as the corpus grows,
+    the same demand re-prices better.
+
+    Drafted lines only. Frozen demand had its budget captured at freeze, and quietly moving
+    that number under someone who already acted on it is not a refresh, it's a surprise.
+    """
+    stmt = select(DemandLine).where(
+        DemandLine.project_id == project_id, DemandLine.state == "drafted"
+    )
+    if only_unpriced:
+        stmt = stmt.where(DemandLine.rom_unit_price.is_(None))
+    lines = list(session.scalars(stmt.order_by(DemandLine.created_at)))
+
+    requests: list[RomBatchLine] = []
+    priceable: list[DemandLine] = []
+    no_physics = 0
+    for dl in lines:
+        a = dl.spec_attributes or {}
+        type_query = str(a.get("type_query") or "").strip()
+        if not type_query:
+            no_physics += 1  # nothing to price against; the requirement is still real
+            continue
+        requests.append(
+            RomBatchLine(
+                type_query=type_query,
+                denominator=str(a.get("denominator") or "$/unit"),
+                size=float(a.get("size") or 1),
+                qty=dl.qty,
+            )
+        )
+        priceable.append(dl)
+
+    bands = price_many(session, requests)
+    for dl, band in zip(priceable, bands, strict=True):
+        dl.rom_unit_price = band.unit_mid
+        dl.rom_confidence = band.confidence_tier
+        dl.rom_comparables_count = band.comparables_count
+        dl.rom_basis = "mid"  # the default; deviating from it is a Quick price judgment
+    session.flush()
+    return priceable, rollup(bands), no_physics

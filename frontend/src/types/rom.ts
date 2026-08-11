@@ -26,9 +26,14 @@ export interface DemandLineRow {
   state: string
   rom_unit_price: number | null
   rom_confidence: string | null
+  /** which point of the band was taken, and why — set on the ROM face, not at capture */
+  rom_basis: string | null
+  rom_note: string | null
   spec_attributes: Record<string, unknown> | null
   target_building: string | null
   target_area: string | null
+  required_by_date: string | null
+  is_lle: boolean
   created_at: string
 }
 
@@ -92,6 +97,8 @@ export interface DemandLineCreate {
   /** which point of the band was taken, and why — the grid takes the default and sends neither */
   rom_basis?: string
   rom_note?: string | null
+  required_by_date?: string | null
+  is_lle?: boolean
 }
 
 export interface Comparable {
@@ -147,4 +154,11 @@ export interface FreezeScopePreview {
   total_qty: number
   rom_extended: number | null
   demand_line_ids: string[]
+}
+
+/** A ROM pass over demand that already exists. */
+export interface PricedDemandRead {
+  priced: DemandLineRow[]
+  rollup: RomRollup
+  skipped_no_physics: number
 }

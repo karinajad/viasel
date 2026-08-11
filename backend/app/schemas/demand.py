@@ -3,6 +3,8 @@ from datetime import date, datetime
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from app.schemas.rom import RomRollup
+
 
 class EquipmentTypeRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
@@ -22,6 +24,7 @@ class DemandLineCreate(BaseModel):
     target_area: str | None = None
     target_position: str | None = None
     required_by_date: date | None = None
+    is_lle: bool = False
     # captured ROM result (the calculator's output becomes the demand line's budget)
     rom_unit_price: float | None = None
     rom_confidence: str | None = None
@@ -59,6 +62,7 @@ class DemandLineRead(BaseModel):
     target_area: str | None
     target_position: str | None
     required_by_date: date | None
+    is_lle: bool
     rom_unit_price: float | None
     rom_confidence: str | None
     rom_basis: str | None
@@ -82,6 +86,11 @@ class FreezeScopePreview(BaseModel):
     total_qty: int
     rom_extended: float | None
     demand_line_ids: list[uuid.UUID]
+
+
+class PriceDemandRequest(BaseModel):
+    project_id: str
+    only_unpriced: bool = True  # leave already-priced lines alone unless asked
 
 
 class ThawRequest(BaseModel):
@@ -115,3 +124,11 @@ class ThawEventRead(BaseModel):
     actor: str | None
     reason: str | None
     created_at: datetime
+
+
+class PricedDemandRead(BaseModel):
+    """What a ROM pass over existing demand produced."""
+
+    priced: list[DemandLineRead]
+    rollup: RomRollup
+    skipped_no_physics: int  # lines with no equipment type — real demand, unpriceable
