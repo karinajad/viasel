@@ -130,10 +130,6 @@ function Detail({ project }: { project: Project }) {
       {hint && <div style={{ fontSize: 10, color: '#9aa0a6', marginTop: 2 }}>{hint}</div>}
     </div>
   )
-  const G = ({ children }: { children: React.ReactNode }) => (
-    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 4 }}>{children}</div>
-  )
-
   const cap = capQ.data
   return (
     <div className="card">
@@ -313,6 +309,12 @@ function Accountability({ projectId }: { projectId: string }) {
       {addM.isError && <div className="note">{String(addM.error).replace(/^Error:\s*/, '')}</div>}
     </div>
   )
+}
+
+/** A row of fields. Must live at module scope: a component defined inside another gets a
+ *  fresh type identity on every render, which remounts its subtree and drops focus. */
+function G({ children }: { children: React.ReactNode }) {
+  return <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 4 }}>{children}</div>
 }
 
 function Sub({ children }: { children: React.ReactNode }) {
