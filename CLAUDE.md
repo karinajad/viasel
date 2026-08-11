@@ -108,6 +108,25 @@ recommending creates provisional scope lines and moves demand to `matching`. Nee
 **cost reconciliation — the wedge**, derived commitment vs. the cost/contract system, catching the
 $1.279M-class gap · logistics/custody · operations telemetry · disposition/provenance.
 
+**The rule that keeps removing work — carry a code only if something outside Viasel reads it back.**
+Not "is it standard", not "is it stable" — is there a consumer. Six things fail it, all documented in
+`plans/12`: Procore's **Holds** (derive it from demand instead), **ACR rows per unit** (the grain is
+building · area · item · qty), the **equipment/vendor code segment** (encodes nothing not already on the
+row), **CSI codes** (nothing reports by section), the **JDE project number inside a code** (constant per
+project, so zero information there), and `HLP` (nobody knows). The asymmetry: the same identifier is
+cheap as a field on the project and expensive as a segment inside stored identity — which is why their
+codes ended up "way too long". Carry components, **render** strings, store neither concatenation.
+
+**Unit identity begins at serialization, not procurement.** Building · area · item · qty is the finite
+level through buying, and payment pro-rata works at it (8 of 12 shipped = 8/12 of the line). Serials
+matter from receipt on — test reports, warranty start, damage (§20 separates repair from replacement),
+telemetry. Never pre-invent identity for a thing that doesn't physically exist.
+
+**Milestone payments: the trigger here, the money there.** Viasel is the only system that can know a
+per-unit trigger fired (FWT passed, shipped, commissioned); Procore/Textura keeps invoice, retainage and
+payment. Viasel emits "milestone 3 due on these 8 units, 40%"; the reconciliation loop runs back the
+other way. Retainage falls out of the Schedule D gates already built.
+
 ⚠️ **Not** quantity inference from a units-per-MW ratio library. Equipment count is
 `load ÷ unit size × redundancy` — an equation, not a regression, and a ratio would silently import
 the last project's topology. History's role there is a check, not the source.

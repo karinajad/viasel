@@ -125,6 +125,82 @@ model that then changes underneath it.
 - **Trusting a CO's stated schedule impact.** Check it against the quantities on the same
   document.
 
+## One rule, six things it removes
+
+**Carry a code only if something outside Viasel reads it back.** Not "is it standard", not "is it
+stable" — is there a consumer. Six things fail that test, and every one of them *shrinks* the build:
+
+| Thing | Why it's out |
+|---|---|
+| **Holds** | A Procore budget workaround for "allocated to scope not yet bought". Viasel has the demand lines, so that number is **derived**, not parked. Porting the workaround imports the problem. |
+| **ACR rows per unit** | A row exists in a spreadsheet because you need somewhere to hang a code. Building · area · item · qty is the finite level, and it's what the record already keeps. |
+| **The equipment/vendor code segment** | Encodes nothing that isn't already on the row, and inherits two failure modes: stale on re-spec, wrong on re-source. Same as the Gryps tag `Core-Parrish Hare-Padmount Transformer`. |
+| **CSI code** | Nothing reports by section. Six digits of precision for a question nobody asks. (I argued for this and was wrong — "it's a standard" isn't the test.) |
+| **JDE project number, inside a code** | Constant across every line in the project, so it carries zero information there. Viasel already partitions by project and Procore is a per-project instance — both sides already know. |
+| **`HLP`** | Nobody knows what it is. |
+
+The asymmetry that makes this matter: the *same* identifier is cheap as a field on the project and
+expensive as a segment inside stored identity. A field is invisible until something asks for it and
+takes an afternoon to add. A segment is in every row forever and can't be pulled back out. That
+asymmetry is the entire reason their codes ended up "way too long".
+
+So the code register decomposes to nothing new. `C1.DH130.1M` is `BT` + `DH` + `ACR Number`, and
+`ACR Number` is `EQ#` + `SUP` — all five already columns on the same row. The sheet stores the
+components *and* the concatenations side by side. Viasel carries the components and **renders** any
+string a downstream system wants, so nobody maintains one.
+
+## Unit identity begins at serialization
+
+Through procurement the grain is **building · area · item · qty** — which is what the model already
+keeps, and what makes the merge rule correct (two lines sharing all three genuinely are duplicates).
+Payment pro-rata works at this grain too: 8 of 12 shipped is 8/12 of the line, no unit records needed.
+
+Identity becomes real at **receipt, from a serial number** — because that's when the physical thing
+exists. Test reports are per serial; warranty starts per serial; damage is a specific unit (spec §20
+already separates repair, which keeps the unit, from replacement, which creates a new one); telemetry
+is *"UPS-07 battery trending warm"*. All of that is receipt-and-after, so identity is born from the
+thing arriving, never pre-invented at procurement.
+
+## Milestone payments: the trigger here, the money there
+
+Undecided whether to model them, and the boundary is what makes it answerable.
+
+**Viasel is the only candidate for determining the trigger.** The triggers in their own schedules are
+per-unit lifecycle events — order acceptance, submittal approval, release to production, FWT passed,
+shipped, delivered, commissioned, owner sign-off. Procore cannot know whether the factory witness test
+happened on a given lot; Viasel can.
+
+**Procore/Textura keeps the money** — invoice, approval, retainage release, payment. Don't rebuild it.
+
+So Viasel holds the schedule as a computable term (spec §15 already specifies
+`trigger_type · trigger_ref · quantity · percentage · basis`, `reconciles_to_100` enforced) and emits
+*"milestone 3 is due on these 8 units, 40% of their contract sum."* Procore consumes it; then the same
+reconciliation loop as executed agreements runs the other way, and divergence is flagged rather than
+adopted. Retainage comes free of the Schedule D gates already built: *"is the withholding condition
+satisfiable yet?"*
+
+## The BBS as an output
+
+Not one report — about seven in one workbook, with different readiness. Worth doing because the Mitten
+(24 tabs) and Spade (41 tabs) workbooks are each maintained by one named person with no documented
+backup.
+
+| Tab | From | Status |
+|---|---|---|
+| BBS (equipment × supplier × qty × budget) | demand lines by type, awarded vendor, ROM as budget | derivable now |
+| Building ACR (Budget · Committed · To Be Bought) | ROM extended · Σ scope lines · frozen with no supply | derivable now |
+| Vendor Breakdown + per-vendor tabs | agreements per vendor | derivable now |
+| CO Log | change orders | packet D |
+| PO Summary CF | payment milestones | needs the decision above |
+| Supplier 1 / Supplier 2 | split award | schema allows, rules unbuilt |
+| OFCI ACR | — | not reproduced, per the rule above |
+
+One real residue to decide rather than omit: the award memo's holds were *on-site QA/QC, in-factory
+third-party testing, temporary storage* — **non-equipment scope in the same budget**. The register only
+carries equipment, so any budget rollup Viasel emits is equipment-only. Either services become demand
+lines of a non-equipment kind (they're procurable scope with a vendor and a price, so the model mostly
+fits), or the rollup states its own limit. The second is honest; the first is complete.
+
 ## Corrections this plan carries forward
 
 - The delivery schedule's typed ROJ date is a **stopgap**. It exists because there was nowhere
