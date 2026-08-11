@@ -31,7 +31,7 @@ export default function SourcingFace({ project }: { project: string }) {
 
       <Candidates project={project} data={candQ.data} loading={candQ.isLoading} error={candQ.isError} />
       <div style={{ marginTop: 16 }}>
-        <Packages project={project} packages={pkgQ.data ?? []} loading={pkgQ.isLoading} />
+        <Packages project={project} packages={(pkgQ.data ?? []).filter((p) => p.state !== 'cancelled')} loading={pkgQ.isLoading} />
       </div>
     </div>
   )
@@ -141,7 +141,7 @@ function Packages({ project, packages, loading }: { project: string; packages: P
                   </td>
                 </tr>
                 {open === p.id && (
-                  <tr><td colSpan={8} style={{ background: '#fafbfc' }}><PackagePanel packageId={p.id} project={project} /></td></tr>
+                  <tr><td colSpan={8} style={{ background: '#fafbfc' }}><PackagePanel packageId={p.id} project={project} siblings={packages.filter((s) => s.id !== p.id && s.state === 'open' && s.type_query === p.type_query && s.size === p.size && s.denominator === p.denominator)} /></td></tr>
                 )}
               </Fragment>
             ))}
@@ -152,7 +152,7 @@ function Packages({ project, packages, loading }: { project: string; packages: P
   )
 }
 
-function PackagePanel({ packageId, project }: { packageId: string; project: string }) {
+function PackagePanel({ packageId, project, siblings }: { packageId: string; project: string; siblings: PackageRead[] }) {
   const qc = useQueryClient()
   const q = useQuery({ queryKey: ['package', packageId], queryFn: () => apiGet<PackageDetail>(`/packages/${packageId}`) })
   const [vendor, setVendor] = useState('')
@@ -168,6 +168,7 @@ function PackagePanel({ packageId, project }: { packageId: string; project: stri
   const [declineReason, setDeclineReason] = useState('')
   const [tried, setTried] = useState(false)
   const [openLayers, setOpenLayers] = useState(false)
+  const [picked, setPicked] = useState<string[]>([])
 
   const refresh = () => {
     qc.invalidateQueries({ queryKey: ['package', packageId] })
@@ -205,6 +206,30 @@ function PackagePanel({ packageId, project }: { packageId: string; project: stri
     mutationFn: (dlId: string) => apiDelete(`/packages/${packageId}/lines/${dlId}`),
     onSuccess: () => { refresh(); qc.invalidateQueries({ queryKey: ['candidates', project] }) },
   })
+  const restructure = {
+    onSuccess: () => {
+      setPicked([])
+      refresh()
+      qc.invalidateQueries({ queryKey: ['candidates', project] })
+    },
+  }
+  const splitM = useMutation({
+    mutationFn: () => apiPost(`/packages/${packageId}/split`, { demand_line_ids: picked }),
+    ...restructure,
+  })
+  const mergeM = useMutation({
+    mutationFn: () => apiPost(`/packages/${packageId}/merge-lines`, { demand_line_ids: picked }),
+    ...restructure,
+  })
+  const moveM = useMutation({
+    mutationFn: (target: string) => apiPost(`/packages/${target}/lines`, { demand_line_ids: picked }),
+    ...restructure,
+  })
+  const killBidM = useMutation({
+    mutationFn: (quoteId: string) => apiDelete(`/packages/${packageId}/quotes/${quoteId}`),
+    onSuccess: refresh,
+  })
+  const restructureError = [splitM.error, mergeM.error, moveM.error, killBidM.error].find(Boolean)
 
   if (q.isLoading || !q.data) return <div style={{ padding: 8, color: 'var(--mut)', fontSize: 12.5 }}>Loading…</div>
   const { package: pkg, lines, leveling } = q.data
@@ -219,24 +244,61 @@ function PackagePanel({ packageId, project }: { packageId: string; project: stri
   return (
     <div style={{ padding: '8px 2px' }}>
       <Sub>Lot contents · {count(pkg.total_qty, 'unit')} of {label(pkg)} across {count(pkg.line_count, 'line')}</Sub>
-      <table style={{ marginBottom: 14 }}>
-        <thead><tr><th>Building / area</th><th className="num">Qty</th><th className="num">ROM / unit</th><th>Demand state</th><th /></tr></thead>
+      <table>
+        <thead><tr><th style={{ width: 26 }} /><th>Building / area</th><th className="num">Qty</th><th className="num">ROM / unit</th><th>Demand state</th><th /></tr></thead>
         <tbody>
           {lines.map((l) => (
             <tr key={l.demand_line_id}>
+              <td>
+                {!awarded && (
+                  <input type="checkbox" checked={picked.includes(l.demand_line_id)} onChange={() => setPicked((s) => s.includes(l.demand_line_id) ? s.filter((x) => x !== l.demand_line_id) : [...s, l.demand_line_id])} />
+                )}
+              </td>
               <td>{l.target_building ?? 'unassigned'}{l.target_area ? ` · ${l.target_area}` : ''}</td>
               <td className="num">{l.qty}</td>
               <td className="num">{money(l.rom_unit_price)}</td>
               <td><span className="st" style={{ background: STATE[l.state] ?? '#6b7280' }}>{l.state}</span></td>
               <td className="num">
                 {!awarded && lines.length > 1 && (
-                  <button className="btn sm danger" title="drop from this lot" onClick={() => dropM.mutate(l.demand_line_id)} disabled={dropM.isPending}>✕</button>
+                  <button className="btn sm danger" title="return to the candidate pool" onClick={() => dropM.mutate(l.demand_line_id)} disabled={dropM.isPending}>✕</button>
                 )}
               </td>
             </tr>
           ))}
         </tbody>
       </table>
+
+      {!awarded && (
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', margin: '8px 0 14px', minHeight: 26 }}>
+          {picked.length === 0 ? (
+            <span style={{ fontSize: 11, color: '#9aa0a6' }}>
+              Tick lines to split them out, move them into another lot of the same equipment, or merge duplicates.
+            </span>
+          ) : (
+            <>
+              <span style={{ fontSize: 12, color: 'var(--mut)' }}>{count(picked.length, 'line')} selected</span>
+              <button className="btn sm" onClick={() => splitM.mutate()} disabled={splitM.isPending || picked.length === lines.length}
+                title={picked.length === lines.length ? 'that is every line — it would just rename the lot' : 'break these out into a new lot'}>
+                Split out ▸
+              </button>
+              {siblings.length > 0 && (
+                <select className="si" defaultValue="" onChange={(e) => { if (e.target.value) moveM.mutate(e.target.value) }} disabled={moveM.isPending}>
+                  <option value="">Move into…</option>
+                  {siblings.map((s) => <option key={s.id} value={s.id}>{s.code} ({count(s.total_qty, 'unit')})</option>)}
+                </select>
+              )}
+              {picked.length > 1 && (
+                <button className="btn sm" onClick={() => mergeM.mutate()} disabled={mergeM.isPending}
+                  title="consolidate duplicates — same building and area only">
+                  Merge duplicates
+                </button>
+              )}
+              <button className="btn sm" onClick={() => setPicked([])}>Clear</button>
+            </>
+          )}
+        </div>
+      )}
+      {restructureError && <div className="note" style={{ marginTop: 0 }}>{String(restructureError).replace(/^Error:\s*/, '')}</div>}
 
       <Sub>
         Bid leveling · every bid all-in, per {pkg.denominator}
@@ -351,7 +413,8 @@ function PackagePanel({ packageId, project }: { packageId: string; project: stri
                   {!awarded && !out && confirming !== r.quote_id && declining !== r.quote_id && (
                     <>
                       <button className="btn sm" style={{ borderColor: 'var(--accent)', color: 'var(--accent)' }} onClick={() => setConfirming(r.quote_id)}>Award ▸</button>{' '}
-                      <button className="btn sm" title="rule this bid out" onClick={() => setDeclining(r.quote_id)}>Rule out</button>
+                      <button className="btn sm" title="rule this bid out — it stays on the record" onClick={() => setDeclining(r.quote_id)}>Rule out</button>{' '}
+                      <button className="btn sm danger" title="delete this bid entirely — needed before the lot can be restructured" onClick={() => killBidM.mutate(r.quote_id)} disabled={killBidM.isPending}>Delete</button>
                     </>
                   )}
                   {!awarded && confirming === r.quote_id && (

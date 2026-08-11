@@ -11,6 +11,7 @@ from app.schemas.packaging import (
     PackageAwardRequest,
     PackageCreate,
     PackageDetail,
+    PackageLinesRequest,
     PackageQuoteCreate,
     PackageRead,
     QuoteDeclineRequest,
@@ -24,9 +25,13 @@ from app.services.packaging import (
     candidates,
     create_package,
     decline_quote,
+    delete_quote,
     detail,
     list_packages,
+    merge_lines,
+    move_lines,
     remove_line,
+    split_package,
 )
 
 router = APIRouter(prefix="/packages", tags=["packages"], dependencies=[Depends(require_token)])
@@ -132,6 +137,65 @@ def delete_package_line(
     try:
         remove_line(session, pkg, dl_id)
     except PackagingError as e:
+        raise _conflict(e) from e
+    session.commit()
+    return detail(session, pkg)
+
+
+@router.post("/{pkg_id}/lines", response_model=PackageDetail)
+def post_move_lines(
+    pkg_id: uuid.UUID, body: PackageLinesRequest, session: Session = Depends(get_session)
+) -> PackageDetail:
+    """Move whole demand lines into this lot — combining two lots is moving all of one."""
+    pkg = _package(session, pkg_id)
+    try:
+        move_lines(session, pkg, body.demand_line_ids)
+    except (PackagingError, DemandNotFrozen) as e:
+        raise _conflict(e) from e
+    session.commit()
+    return detail(session, pkg)
+
+
+@router.post("/{pkg_id}/split", response_model=PackageDetail, status_code=201)
+def post_split(
+    pkg_id: uuid.UUID, body: PackageLinesRequest, session: Session = Depends(get_session)
+) -> PackageDetail:
+    """Break lines out of this lot into a new one. Returns the new lot."""
+    pkg = _package(session, pkg_id)
+    try:
+        fresh = split_package(session, pkg, body.demand_line_ids)
+    except (PackagingError, DemandNotFrozen) as e:
+        raise _conflict(e) from e
+    session.commit()
+    return detail(session, fresh)
+
+
+@router.delete("/{pkg_id}/quotes/{quote_id}", response_model=PackageDetail)
+def delete_package_quote(
+    pkg_id: uuid.UUID, quote_id: uuid.UUID, session: Session = Depends(get_session)
+) -> PackageDetail:
+    """Delete a bid so the lot it was priced against can be restructured."""
+    pkg = _package(session, pkg_id)
+    quote = session.get(Quote, quote_id)
+    if quote is None:
+        raise HTTPException(status_code=404, detail="quote not found")
+    try:
+        delete_quote(session, pkg, quote)
+    except PackagingError as e:
+        raise _conflict(e) from e
+    session.commit()
+    return detail(session, pkg)
+
+
+@router.post("/{pkg_id}/merge-lines", response_model=PackageDetail)
+def post_merge_lines(
+    pkg_id: uuid.UUID, body: PackageLinesRequest, session: Session = Depends(get_session)
+) -> PackageDetail:
+    """Consolidate duplicate lines — same physics, same building and area — into one."""
+    pkg = _package(session, pkg_id)
+    try:
+        merge_lines(session, pkg, body.demand_line_ids)
+    except (PackagingError, DemandNotFrozen, InvalidTransition) as e:
         raise _conflict(e) from e
     session.commit()
     return detail(session, pkg)

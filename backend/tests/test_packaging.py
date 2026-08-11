@@ -19,12 +19,16 @@ from app.services.packaging import (
     candidates,
     create_package,
     decline_quote,
+    delete_quote,
     detail,
     effective_unit,
     leveling,
+    merge_lines,
+    move_lines,
     package_lines,
     package_quotes,
     remove_line,
+    split_package,
 )
 
 PROJECT = "PKGTEST"
@@ -307,3 +311,140 @@ def test_award_commits_the_all_in_price_not_the_equipment_price(session: Session
     allin = 300000.0 + 5000.0 + 2000.0 + 1000.0  # 20,000 / 20 units
     assert all(sl.unit_price == allin for sl in scope_lines)
     assert detail(session, pkg).package.awarded_extended == allin * 20
+
+
+def test_lots_combine_when_the_physics_match(session: Session) -> None:
+    a = _line(session, size=5000, qty=20, building="C1")
+    later = _line(session, size=5000, qty=4, building="C4")  # frozen a week later
+    first = create_package(session, PROJECT, [a.id])
+    second = create_package(session, PROJECT, [later.id])
+
+    move_lines(session, first, [later.id])
+
+    assert {dl.id for dl in package_lines(session, first)} == {a.id, later.id}
+    assert detail(session, first).package.total_qty == 24
+    # the emptied lot retires rather than lingering as a ghost
+    assert second.state == "cancelled"
+    assert package_lines(session, second) == []
+
+
+def test_a_lot_separates_into_two(session: Session) -> None:
+    a = _line(session, size=5000, qty=12, building="C1")
+    b = _line(session, size=5000, qty=8, building="C2")
+    pkg = create_package(session, PROJECT, [a.id, b.id])
+
+    fresh = split_package(session, pkg, [b.id])
+
+    assert [dl.id for dl in package_lines(session, pkg)] == [a.id]
+    assert fresh.id != pkg.id and fresh.code != pkg.code
+    assert [dl.id for dl in package_lines(session, fresh)] == [b.id]
+    assert pkg.state == "open"  # still has a line, so still live
+
+
+def test_a_line_of_different_physics_cannot_join_a_lot(session: Session) -> None:
+    a = _line(session, size=5000, qty=12, building="C1")
+    other = _line(session, size=3250, qty=4, building="C3")
+    pkg = create_package(session, PROJECT, [a.id])
+    with pytest.raises(PackagingError, match="different physics"):
+        move_lines(session, pkg, [other.id])
+
+
+def test_a_live_bid_blocks_restructuring_until_it_is_dealt_with(session: Session) -> None:
+    a = _line(session, size=5000, qty=12, building="C1")
+    b = _line(session, size=5000, qty=8, building="C2")
+    loose = _line(session, size=5000, qty=4, building="C4")
+    pkg = create_package(session, PROJECT, [a.id, b.id])
+    q = add_package_quote(session, pkg, "Eaton", 300000.0, one_time_cost=60000.0)
+
+    # the bid was priced against 20 units — changing the lot breaks it
+    for op in (
+        lambda: move_lines(session, pkg, [loose.id]),
+        lambda: split_package(session, pkg, [b.id]),
+        lambda: remove_line(session, pkg, b.id),
+    ):
+        with pytest.raises(PackagingError, match="live bid"):
+            op()
+
+    # deleting the bid unblocks it
+    delete_quote(session, pkg, q)
+    move_lines(session, pkg, [loose.id])
+    assert detail(session, pkg).package.total_qty == 24
+
+    # ruling one out works too — a declined bid is history, not a live promise
+    q2 = add_package_quote(session, pkg, "Vertiv", 280000.0)
+    decline_quote(session, pkg, q2, "lead time misses Phase 1")
+    fresh = split_package(session, pkg, [loose.id])
+    assert [dl.id for dl in package_lines(session, fresh)] == [loose.id]
+
+
+def test_the_source_lot_must_also_be_free_to_change(session: Session) -> None:
+    a = _line(session, size=5000, qty=12, building="C1")
+    b = _line(session, size=5000, qty=8, building="C2")
+    keeper = create_package(session, PROJECT, [a.id])
+    bid_on = create_package(session, PROJECT, [b.id])
+    add_package_quote(session, bid_on, "Eaton", 300000.0)
+
+    # pulling b out of a lot that has a live bid on it breaks that bid too
+    with pytest.raises(PackagingError, match=f"{bid_on.code} has 1 live bid"):
+        move_lines(session, keeper, [b.id])
+
+
+def test_splitting_out_every_line_is_refused_as_a_no_op(session: Session) -> None:
+    a = _line(session, size=5000, qty=12, building="C1")
+    pkg = create_package(session, PROJECT, [a.id])
+    with pytest.raises(PackagingError, match="just rename the lot"):
+        split_package(session, pkg, [a.id])
+
+
+def test_an_awarded_bid_can_be_neither_deleted_nor_its_lot_restructured(session: Session) -> None:
+    a = _line(session, size=5000, qty=12, building="C1")
+    b = _line(session, size=5000, qty=8, building="C2")
+    pkg = create_package(session, PROJECT, [a.id, b.id])
+    q = add_package_quote(session, pkg, "Eaton", 300000.0)
+    award_package(session, pkg, q)
+
+    with pytest.raises(PackagingError, match="part of the commitment"):
+        delete_quote(session, pkg, q)
+    with pytest.raises(PackagingError, match="scope is committed"):
+        split_package(session, pkg, [b.id])
+
+
+def test_duplicate_lines_in_the_same_place_merge_into_one(session: Session) -> None:
+    a = _line(session, size=5000, qty=8, building="C1", rom=300000.0)
+    dup = _line(session, size=5000, qty=4, building="C1", rom=300000.0)
+    a.target_area = dup.target_area = "C1-DH3"
+    session.flush()
+    pkg = create_package(session, PROJECT, [a.id, dup.id])
+    assert detail(session, pkg).package.line_count == 2
+
+    survivor = merge_lines(session, pkg, [a.id, dup.id])
+
+    assert survivor.qty == 12
+    assert survivor.revision == 2  # the consolidation is a revision, not a silent edit
+    assert dup.state == "cancelled"
+    d = detail(session, pkg)
+    assert d.package.line_count == 1 and d.package.total_qty == 12
+    assert d.package.rom_extended == 300000.0 * 12  # the lot's value is unchanged
+
+
+def test_lines_in_different_places_refuse_to_merge(session: Session) -> None:
+    a = _line(session, size=5000, qty=12, building="C1")
+    b = _line(session, size=5000, qty=8, building="C2")
+    pkg = create_package(session, PROJECT, [a.id, b.id])
+    with pytest.raises(PackagingError, match="different places"):
+        merge_lines(session, pkg, [a.id, b.id])
+
+
+def test_a_bid_on_the_lot_blocks_a_merge_until_it_is_wiped(session: Session) -> None:
+    a = _line(session, size=5000, qty=8, building="C1")
+    dup = _line(session, size=5000, qty=4, building="C1")
+    pkg = create_package(session, PROJECT, [a.id, dup.id])
+    q = add_package_quote(session, pkg, "Eaton", 300000.0, one_time_cost=60000.0)
+
+    with pytest.raises(PackagingError, match="live bid"):
+        merge_lines(session, pkg, [a.id, dup.id])
+
+    delete_quote(session, pkg, q)  # wipe it, merge, re-enter the bid
+    merge_lines(session, pkg, [a.id, dup.id])
+    again = add_package_quote(session, pkg, "Eaton", 300000.0, one_time_cost=60000.0)
+    assert effective_unit(again, 12) == 305000.0  # 60,000 over 12 now, not 12 + 4 separately

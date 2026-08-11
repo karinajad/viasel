@@ -27,7 +27,16 @@ from app.schemas.packaging import (
     PackageLineRead,
     PackageRead,
 )
-from app.services.freeze import FROZEN, MATCHED, MATCHING, assert_frozen_for_supply, transition
+from app.services.freeze import (
+    CANCELLED as DEMAND_CANCELLED,
+)
+from app.services.freeze import (
+    FROZEN,
+    MATCHED,
+    MATCHING,
+    assert_frozen_for_supply,
+    transition,
+)
 
 OPEN = "open"
 AWARDED = "awarded"
@@ -189,10 +198,191 @@ def create_package(
     return pkg
 
 
-def remove_line(session: Session, pkg: SourcingPackage, demand_line_id: uuid.UUID) -> None:
-    """Drop a line from an open package. Soft — the package's history stays intact."""
+def _live_quotes(session: Session, pkg: SourcingPackage) -> list[Quote]:
+    return [q for q in package_quotes(session, pkg) if q.state != DECLINED]
+
+
+def assert_restructurable(session: Session, pkg: SourcingPackage) -> None:
+    """Lines move freely between lots — until a bid is riding on the lot's size.
+
+    A bid is a price for a specific unit count with a one-time cost amortized over it.
+    Change what's in the lot and that number is no longer a bid on anything, so the
+    restructure stops and asks you to deal with the bid first. Declined bids don't block:
+    they're already out of play and their recorded basis is history.
+    """
     if pkg.state != OPEN:
         raise PackagingError(f"package {pkg.code} is {pkg.state} — its scope is committed")
+    live = _live_quotes(session, pkg)
+    if live:
+        qty = sum(dl.qty for dl in package_lines(session, pkg))
+        vendors = ", ".join(sorted(q.vendor for q in live))
+        raise PackagingError(
+            f"{pkg.code} has {len(live)} live bid(s) priced against {qty} units ({vendors}). "
+            "Delete or rule them out before changing what's in the lot."
+        )
+
+
+def _pool_key_of(pkg: SourcingPackage) -> PoolKey:
+    return (pkg.type_query, pkg.denominator, _f(pkg.size, 1.0))
+
+
+def _cancel_if_empty(session: Session, pkg: SourcingPackage) -> None:
+    """A lot with nothing left in it is spent — keep the code, retire the lot."""
+    if not package_lines(session, pkg):
+        pkg.state = CANCELLED
+        session.flush()
+
+
+def move_lines(
+    session: Session, target: SourcingPackage, demand_line_ids: Sequence[uuid.UUID]
+) -> SourcingPackage:
+    """Move whole demand lines into this lot, from another open lot or from the pool.
+
+    Whole lines only. Splitting a line's quantity across two lots is a demand revision,
+    not a regroup — the line has to be thawed and re-cut first.
+    """
+    assert_restructurable(session, target)
+    lines = list(session.scalars(select(DemandLine).where(DemandLine.id.in_(demand_line_ids))))
+    found = {dl.id for dl in lines}
+    if missing := [str(i) for i in demand_line_ids if i not in found]:
+        raise PackagingError(f"demand lines not found: {', '.join(missing)}")
+
+    key = _pool_key_of(target)
+    for dl in lines:
+        if dl.project_id != target.project_id:
+            raise PackagingError("a line can only join a lot in its own project")
+        assert_frozen_for_supply(dl)  # the gate holds through restructuring too
+        if pool_key(dl) != key:
+            raise PackagingError(
+                f"{target.code} is {key[0]} {key[2]:g}{key[1].replace('$/', ' ')} — "
+                "a line of different physics can't join it. Scope it as its own lot."
+            )
+
+    # detach from whichever open lot currently holds it; that lot must be free to change too
+    sources: set[uuid.UUID] = set()
+    for dl in lines:
+        held = session.scalar(
+            select(PackageLine).where(
+                PackageLine.demand_line_id == dl.id, PackageLine.active.is_(True)
+            )
+        )
+        if held is None:
+            continue
+        if held.sourcing_package_id == target.id:
+            continue
+        source = session.get(SourcingPackage, held.sourcing_package_id)
+        if source is not None:
+            assert_restructurable(session, source)
+            sources.add(source.id)
+        held.active = False
+    session.flush()
+
+    already = {pl.demand_line_id for pl in session.scalars(
+        select(PackageLine).where(
+            PackageLine.sourcing_package_id == target.id, PackageLine.active.is_(True)
+        )
+    )}
+    session.add_all(
+        PackageLine(sourcing_package_id=target.id, demand_line_id=dl.id)
+        for dl in lines
+        if dl.id not in already
+    )
+    session.flush()
+
+    for sid in sources:
+        source = session.get(SourcingPackage, sid)
+        if source is not None:
+            _cancel_if_empty(session, source)
+    return target
+
+
+def split_package(
+    session: Session, pkg: SourcingPackage, demand_line_ids: Sequence[uuid.UUID]
+) -> SourcingPackage:
+    """Break lines out of a lot into a new lot of their own."""
+    assert_restructurable(session, pkg)
+    held = {
+        pl.demand_line_id
+        for pl in session.scalars(
+            select(PackageLine).where(
+                PackageLine.sourcing_package_id == pkg.id, PackageLine.active.is_(True)
+            )
+        )
+    }
+    wanted = set(demand_line_ids)
+    if not wanted <= held:
+        raise PackagingError("those lines are not in this lot")
+    if wanted == held:
+        raise PackagingError(
+            f"that's every line in {pkg.code} — splitting it out would just rename the lot"
+        )
+    for dl_id in wanted:
+        remove_line(session, pkg, dl_id)
+    fresh = create_package(session, pkg.project_id, list(wanted))
+    _cancel_if_empty(session, pkg)
+    return fresh
+
+
+def merge_lines(
+    session: Session, pkg: SourcingPackage, demand_line_ids: Sequence[uuid.UUID]
+) -> DemandLine:
+    """Consolidate duplicate demand lines in a lot into one.
+
+    Only lines that are the same thing in the same place: identical physics (guaranteed
+    inside a lot) *and* identical building and area. Merging across locations is refused —
+    C1×12 and C2×8 collapsed to 20 loses where the units go, and the award exhibit
+    allocates by building. Location is the one thing a merge must not erase.
+
+    The survivor's quantity grows and its revision bumps; the absorbed lines are cancelled,
+    so the audit trail shows the consolidation rather than hiding it. That is only sound
+    because 'what is needed where' is unchanged — which is why identical location is the rule
+    and not a nicety.
+    """
+    assert_restructurable(session, pkg)
+    held = {dl.id: dl for dl in package_lines(session, pkg)}
+    wanted = [held[i] for i in demand_line_ids if i in held]
+    if len(wanted) != len(set(demand_line_ids)):
+        raise PackagingError("those lines are not in this lot")
+    if len(wanted) < 2:
+        raise PackagingError("merging takes at least two lines")
+
+    places = {(dl.target_building, dl.target_area) for dl in wanted}
+    if len(places) > 1:
+        shown = ", ".join(
+            sorted(f"{b or 'unassigned'}{f' · {a}' if a else ''}" for b, a in places)
+        )
+        raise PackagingError(
+            f"these lines are in different places ({shown}) — merging them would lose where "
+            "the units go. Only duplicates in the same building and area can merge."
+        )
+
+    survivor, absorbed = wanted[0], wanted[1:]
+    for dl in absorbed:
+        survivor.qty += dl.qty
+        transition(dl, DEMAND_CANCELLED)
+        remove_line(session, pkg, dl.id)
+    survivor.revision += 1
+    session.flush()
+    return survivor
+
+
+def delete_quote(session: Session, pkg: SourcingPackage, quote: Quote) -> None:
+    """Delete a bid outright, so the lot it was priced against can be restructured.
+
+    Ruling a bid out keeps it as market data (§7); deleting removes it. Deleting is for a
+    bid that was never a bid on anything real — the lot changed underneath it.
+    """
+    if quote.sourcing_package_id != pkg.id:
+        raise PackagingError("that quote is not a bid on this package")
+    if quote.state == SELECTED:
+        raise PackagingError("that bid was awarded — it is part of the commitment now")
+    session.delete(quote)
+    session.flush()
+
+
+def remove_line(session: Session, pkg: SourcingPackage, demand_line_id: uuid.UUID) -> None:
+    """Drop a line from an open package. Soft — the package's history stays intact."""
+    assert_restructurable(session, pkg)
     pl = session.scalar(
         select(PackageLine).where(
             PackageLine.sourcing_package_id == pkg.id,

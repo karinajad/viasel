@@ -105,5 +105,11 @@ class PackageAwardRequest(BaseModel):
     quote_id: uuid.UUID
 
 
+class PackageLinesRequest(BaseModel):
+    """Whole demand lines to move into, or split out of, a lot."""
+
+    demand_line_ids: list[uuid.UUID] = Field(min_length=1, max_length=500)
+
+
 class QuoteDeclineRequest(BaseModel):
     reason: str = Field(min_length=1)  # ruling a bid out requires a stated reason
