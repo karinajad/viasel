@@ -35,6 +35,7 @@ class PackageLineRead(BaseModel):
     target_area: str | None
     state: str
     rom_unit_price: float | None
+    lead_time_weeks: int | None  # what design assumed for this line
 
 
 class LevelingRow(BaseModel):
@@ -58,6 +59,8 @@ class LevelingRow(BaseModel):
     delta_vs_low_pct: float | None
     delta_vs_rom: float | None  # against what the executed record says the lot should cost
     delta_vs_rom_pct: float | None
+    # the vendor's lead time against what design assumed: negative is time won back
+    delta_vs_design_lead: int | None
 
     is_low: bool
     is_selected: bool
@@ -77,6 +80,7 @@ class PackageRead(BaseModel):
     total_qty: int
     rom_unit_price: float | None
     rom_extended: float | None
+    design_lead_weeks: int | None  # the longest design assumption in the lot — the binding one
     quote_count: int  # live bids
     declined_count: int
     awarded_vendor: str | None

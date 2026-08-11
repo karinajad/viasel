@@ -24,7 +24,7 @@ class DemandLineCreate(BaseModel):
     target_area: str | None = None
     target_position: str | None = None
     required_by_date: date | None = None
-    is_lle: bool = False
+    lead_time_weeks: int | None = None  # design-side long-lead assumption
     # captured ROM result (the calculator's output becomes the demand line's budget)
     rom_unit_price: float | None = None
     rom_confidence: str | None = None
@@ -62,7 +62,7 @@ class DemandLineRead(BaseModel):
     target_area: str | None
     target_position: str | None
     required_by_date: date | None
-    is_lle: bool
+    lead_time_weeks: int | None
     rom_unit_price: float | None
     rom_confidence: str | None
     rom_basis: str | None

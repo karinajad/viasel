@@ -87,11 +87,11 @@ class DemandLine(Base):
     target_area: Mapped[str | None] = mapped_column(String)
     target_position: Mapped[str | None] = mapped_column(String)
     required_by_date: Mapped[date | None] = mapped_column(Date)
-    # long-lead equipment: the items whose lead time drives what dates you can promise a
-    # customer, so they get bought before the rest — often before there is a customer at all
-    is_lle: Mapped[bool] = mapped_column(
-        Boolean, default=False, server_default=text("false"), nullable=False
-    )
+    # the design-side long-lead assumption, in weeks. All of this equipment is long-lead, so
+    # a flag says nothing — the number is the point: it's what turns a required-by date into
+    # a date you have to be in contract by. A vendor's own lead time lands on their bid and
+    # can differ; the variance between the two is a schedule position worth seeing.
+    lead_time_weeks: Mapped[int | None] = mapped_column(Integer)
     rom_unit_price: Mapped[float | None] = mapped_column(Numeric)
     rom_confidence: Mapped[str | None] = mapped_column(String)
     rom_comparables_count: Mapped[int | None] = mapped_column(Integer)

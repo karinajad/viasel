@@ -15,7 +15,7 @@ package is formed, when a bid is taken, and when it is awarded.
 import uuid
 from collections.abc import Sequence
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.models import DemandLine, PackageLine, Quote, ScopeLine, SourcingPackage, Vendor
@@ -427,7 +427,22 @@ def add_package_quote(
                 f"{resolved.name} is {resolved.status}"
                 + (f" — {resolved.status_note}" if resolved.status_note else "")
             )
-    name = (vendor or "").strip() or (resolved.name if resolved else "")
+    typed = (vendor or "").strip()
+    if resolved is None and typed:
+        # a typed name that matches the roster resolves to it, so reliability still
+        # accumulates against one identity even when a caller only had the name
+        resolved = session.scalar(
+            select(Vendor).where(
+                func.lower(Vendor.name) == typed.lower(), Vendor.active.is_(True)
+            )
+        )
+        if resolved is None:
+            raise PackagingError(
+                f"'{typed}' is not on the vendor roster — add the firm first, so its bids "
+                "and deliveries accumulate against one identity"
+            )
+        vendor_id = resolved.id
+    name = typed or (resolved.name if resolved else "")
     if not name:
         raise PackagingError("a bid needs a vendor")
     if pkg.state != OPEN:
@@ -510,6 +525,12 @@ def award_package(
     return scope_lines
 
 
+def design_lead_weeks(lines: Sequence[DemandLine]) -> int | None:
+    """The binding design assumption for a lot — the longest of its lines."""
+    weeks = [dl.lead_time_weeks for dl in lines if dl.lead_time_weeks]
+    return max(weeks) if weeks else None
+
+
 def _read(session: Session, pkg: SourcingPackage, lines: Sequence[DemandLine], quotes: Sequence[Quote]) -> PackageRead:
     selected = next((q for q in quotes if q.state == SELECTED), None)
     total_qty = sum(dl.qty for dl in lines)
@@ -527,6 +548,7 @@ def _read(session: Session, pkg: SourcingPackage, lines: Sequence[DemandLine], q
         total_qty=total_qty,
         rom_unit_price=round(rom_ext / total_qty, 2) if rom_ext and total_qty else None,
         rom_extended=rom_ext,
+        design_lead_weeks=design_lead_weeks(lines),
         quote_count=len([q for q in quotes if q.state != DECLINED]),
         declined_count=len([q for q in quotes if q.state == DECLINED]),
         awarded_vendor=selected.vendor if selected else None,
@@ -586,6 +608,7 @@ def leveling(
     size = _f(pkg.size, 1.0) or 1.0
     rom_ext = _rom_extended(lines)
     rom_unit = rom_ext / total_qty if rom_ext and total_qty else None
+    design_lead = design_lead_weeks(lines)
 
     allin = {q.id: effective_unit(q, total_qty) for q in quotes}
     live = [q for q in quotes if q.state != DECLINED]
@@ -613,6 +636,11 @@ def leveling(
                 delta_vs_low_pct=round((unit - low) / low, 4) if low else None,
                 delta_vs_rom=round(unit - rom_unit, 2) if rom_unit else None,
                 delta_vs_rom_pct=round((unit - rom_unit) / rom_unit, 4) if rom_unit else None,
+                delta_vs_design_lead=(
+                    q.lead_time_weeks - design_lead
+                    if q.lead_time_weeks is not None and design_lead is not None
+                    else None
+                ),
                 is_low=unit == low and q.state != DECLINED,
                 is_selected=q.state == SELECTED,
             )
@@ -634,6 +662,7 @@ def detail(session: Session, pkg: SourcingPackage) -> PackageDetail:
                 target_area=dl.target_area,
                 state=dl.state,
                 rom_unit_price=_f(dl.rom_unit_price) if dl.rom_unit_price is not None else None,
+                lead_time_weeks=dl.lead_time_weeks,
             )
             for dl in lines
         ],

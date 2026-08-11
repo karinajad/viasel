@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { apiDelete, apiGet, apiPost } from './services/api'
 import { STATE, count, money, physics, signed, signedPct } from './lib/format'
 import type { CandidatesRead, PackageDetail, PackageRead } from './types/sourcing'
+import type { Vendor } from './types/vendor'
 
 const label = (p: { type_query: string; size: number; denominator: string }) =>
   physics(p.type_query, p.size, p.denominator)
@@ -117,6 +118,7 @@ function Packages({ project, packages, loading }: { project: string; packages: P
               <th>Equipment</th>
               <th className="num">Units</th>
               <th className="num">ROM extended</th>
+              <th className="num" title="design lead-time assumption for this lot">Lead</th>
               <th className="num">Bids</th>
               <th>State</th>
               <th className="num">Awarded</th>
@@ -131,6 +133,7 @@ function Packages({ project, packages, loading }: { project: string; packages: P
                   <td>{label(p)} <span style={{ color: 'var(--mut)' }}>· {p.line_count} lines</span></td>
                   <td className="num">{p.total_qty}</td>
                   <td className="num">{money(p.rom_extended)}</td>
+                  <td className="num" style={{ color: p.design_lead_weeks == null ? 'var(--line)' : 'var(--mut)' }}>{p.design_lead_weeks ?? '—'}</td>
                   <td className="num">{p.quote_count}{p.declined_count > 0 && <span style={{ color: 'var(--mut)', fontSize: 11 }}> +{p.declined_count} out</span>}</td>
                   <td><span className="st" style={{ background: p.state === 'awarded' ? 'var(--accent)' : '#6b7280' }}>{p.state}</span></td>
                   <td className="num">{p.awarded_vendor ? <>{p.awarded_vendor}<br /><span style={{ color: 'var(--mut)', fontSize: 11 }}>{money(p.awarded_extended)}</span></> : '—'}</td>
@@ -141,7 +144,7 @@ function Packages({ project, packages, loading }: { project: string; packages: P
                   </td>
                 </tr>
                 {open === p.id && (
-                  <tr><td colSpan={8} style={{ background: '#fafbfc' }}><PackagePanel packageId={p.id} project={project} siblings={packages.filter((s) => s.id !== p.id && s.state === 'open' && s.type_query === p.type_query && s.size === p.size && s.denominator === p.denominator)} /></td></tr>
+                  <tr><td colSpan={9} style={{ background: '#fafbfc' }}><PackagePanel packageId={p.id} project={project} siblings={packages.filter((s) => s.id !== p.id && s.state === 'open' && s.type_query === p.type_query && s.size === p.size && s.denominator === p.denominator)} /></td></tr>
                 )}
               </Fragment>
             ))}
@@ -155,8 +158,13 @@ function Packages({ project, packages, loading }: { project: string; packages: P
 function PackagePanel({ packageId, project, siblings }: { packageId: string; project: string; siblings: PackageRead[] }) {
   const qc = useQueryClient()
   const q = useQuery({ queryKey: ['package', packageId], queryFn: () => apiGet<PackageDetail>(`/packages/${packageId}`) })
-  const [vendor, setVendor] = useState('')
+  // only firms on the roster, and only ones you can actually buy from
+  const vendorsQ = useQuery({ queryKey: ['vendors', 'biddable'], queryFn: () => apiGet<Vendor[]>('/vendors?biddable_only=true') })
+  const vendors = vendorsQ.data ?? []
+  const [vendorId, setVendorId] = useState('')
   const [oem, setOem] = useState('')
+  const [newVendor, setNewVendor] = useState<string | null>(null)
+  const chosen = vendors.find((v) => v.id === vendorId)
   const [unit, setUnit] = useState<number | ''>('')
   const [lead, setLead] = useState<number | ''>('')
   const [services, setServices] = useState<number | ''>('')
@@ -178,12 +186,12 @@ function PackagePanel({ packageId, project, siblings }: { packageId: string; pro
   const numOrBlank = (s: string): number | '' => (s === '' ? '' : Number(s))
   const bidM = useMutation({
     mutationFn: () => apiPost<PackageDetail>(`/packages/${packageId}/quotes`, {
-      vendor, oem: oem || null, unit_price: Number(unit), lead_time_weeks: num(lead),
+      vendor_id: vendorId, oem: oem || null, unit_price: Number(unit), lead_time_weeks: num(lead),
       services_unit: num(services), freight_unit: num(freight),
       discount_unit: num(discount), one_time_cost: num(oneTime),
     }),
     onSuccess: () => {
-      setVendor(''); setOem(''); setUnit(''); setLead('')
+      setVendorId(''); setOem(''); setUnit(''); setLead('')
       setServices(''); setFreight(''); setDiscount(''); setOneTime('')
       setTried(false)
       refresh()
@@ -191,8 +199,17 @@ function PackagePanel({ packageId, project, siblings }: { packageId: string; pro
   })
   // a bid needs a vendor and an equipment price to be a bid; everything else is optional.
   // The button stays pressable and says what's missing rather than sitting dead.
-  const missing = [!vendor && 'a vendor', unit === '' && 'an equipment $/unit'].filter(Boolean)
+  const missing = [!vendorId && 'a vendor', unit === '' && 'an equipment $/unit'].filter(Boolean)
   const layerCount = [services, freight, discount, oneTime, oem].filter((v) => v !== '' && v !== null).length
+  const addVendorM = useMutation({
+    mutationFn: () => apiPost<Vendor>('/vendors', { name: newVendor }),
+    onSuccess: (v) => {
+      setNewVendor(null)
+      setVendorId(v.id)
+      qc.invalidateQueries({ queryKey: ['vendors', 'biddable'] })
+      qc.invalidateQueries({ queryKey: ['vendors'] })
+    },
+  })
   const declineM = useMutation({
     mutationFn: (quoteId: string) =>
       apiPost(`/packages/${packageId}/quotes/${quoteId}/decline`, { reason: declineReason }),
@@ -245,7 +262,7 @@ function PackagePanel({ packageId, project, siblings }: { packageId: string; pro
     <div style={{ padding: '8px 2px' }}>
       <Sub>Lot contents · {count(pkg.total_qty, 'unit')} of {label(pkg)} across {count(pkg.line_count, 'line')}</Sub>
       <table>
-        <thead><tr><th style={{ width: 26 }} /><th>Building / area</th><th className="num">Qty</th><th className="num">ROM / unit</th><th>Demand state</th><th /></tr></thead>
+        <thead><tr><th style={{ width: 26 }} /><th>Building / area</th><th className="num">Qty</th><th className="num" title="design lead-time assumption">Lead</th><th className="num">ROM / unit</th><th>Demand state</th><th /></tr></thead>
         <tbody>
           {lines.map((l) => (
             <tr key={l.demand_line_id}>
@@ -256,6 +273,7 @@ function PackagePanel({ packageId, project, siblings }: { packageId: string; pro
               </td>
               <td>{l.target_building ?? 'unassigned'}{l.target_area ? ` · ${l.target_area}` : ''}</td>
               <td className="num">{l.qty}</td>
+              <td className="num" style={{ color: l.lead_time_weeks == null ? 'var(--line)' : 'var(--mut)' }}>{l.lead_time_weeks ?? '—'}</td>
               <td className="num">{money(l.rom_unit_price)}</td>
               <td><span className="st" style={{ background: STATE[l.state] ?? '#6b7280' }}>{l.state}</span></td>
               <td className="num">
@@ -309,8 +327,23 @@ function PackagePanel({ packageId, project, siblings }: { packageId: string; pro
       {!awarded && (
         <div className="bidform">
           <div className="row">
-            <Field label="Vendor" required width={168}>
-              <input className="si" value={vendor} onChange={(e) => setVendor(e.target.value)} />
+            <Field label="Vendor" required width={186}
+              hint={vendors.length === 0 ? 'no vendors on the roster yet' : chosen?.role}>
+              {newVendor === null ? (
+                <select className="si" style={{ width: '100%' }} value={vendorId}
+                  onChange={(e) => { if (e.target.value === '+') { setNewVendor(''); setVendorId('') } else { setVendorId(e.target.value); setOem('') } }}>
+                  <option value="">{vendors.length === 0 ? '— none on the roster —' : '— pick a vendor —'}</option>
+                  {vendors.map((v) => <option key={v.id} value={v.id}>{v.name}{v.code ? ` · ${v.code}` : ''}</option>)}
+                  <option value="+">+ add a vendor…</option>
+                </select>
+              ) : (
+                <div style={{ display: 'flex', gap: 4 }}>
+                  <input className="si" style={{ width: '100%' }} autoFocus placeholder="new vendor name"
+                    value={newVendor} onChange={(e) => setNewVendor(e.target.value)} />
+                  <button className="btn sm" onClick={() => addVendorM.mutate()} disabled={!newVendor || addVendorM.isPending}>✓</button>
+                  <button className="btn sm" onClick={() => setNewVendor(null)}>✕</button>
+                </div>
+              )}
             </Field>
             <Field label={`Equipment $ / unit`} required width={150}>
               <input className="si" type="number" value={unit} onChange={(e) => setUnit(numOrBlank(e.target.value))} />
@@ -346,8 +379,13 @@ function PackagePanel({ packageId, project, siblings }: { packageId: string; pro
               >
                 <input className="si" type="number" value={oneTime} onChange={(e) => setOneTime(numOrBlank(e.target.value))} />
               </Field>
-              <Field label="OEM" hint="if not the vendor" width={150}>
-                <input className="si" value={oem} onChange={(e) => setOem(e.target.value)} />
+              <Field label="OEM" width={168}
+                hint={!chosen ? 'pick a vendor first' : chosen.oem_names?.length ? 'from the vendor record' : `${chosen.name} manufactures its own`}>
+                <select className="si" style={{ width: '100%' }} value={oem} onChange={(e) => setOem(e.target.value)}
+                  disabled={!chosen?.oem_names?.length}>
+                  <option value="">{chosen?.oem_names?.length ? '— which one —' : '—'}</option>
+                  {(chosen?.oem_names ?? []).map((o) => <option key={o} value={o}>{o}</option>)}
+                </select>
               </Field>
             </div>
           )}
@@ -358,6 +396,9 @@ function PackagePanel({ packageId, project, siblings }: { packageId: string; pro
             </button>
             {tried && missing.length > 0 && (
               <span style={{ fontSize: 12, color: 'var(--red)' }}>Needs {missing.join(' and ')}.</span>
+            )}
+            {addVendorM.isError && (
+              <span style={{ fontSize: 12, color: 'var(--red)' }}>{String(addVendorM.error).replace(/^Error:\s*/, '')}</span>
             )}
           </div>
         </div>
@@ -371,7 +412,7 @@ function PackagePanel({ packageId, project, siblings }: { packageId: string; pro
               <th>Vendor</th>
               <th className="num">All-in $ / unit</th>
               <th className="num">per {pkg.denominator}</th>
-              <th className="num">Lead</th>
+              <th className="num">Lead{pkg.design_lead_weeks != null && <span style={{ fontWeight: 400, textTransform: 'none' }}> vs {pkg.design_lead_weeks}w</span>}</th>
               <th className="num">Extended ({pkg.total_qty})</th>
               <th className="num">{oneLiveBid ? '' : 'vs lowest'}</th>
               <th className="num">vs ROM</th>
@@ -401,7 +442,14 @@ function PackagePanel({ packageId, project, siblings }: { packageId: string; pro
                 </td>
                 <td className="num"><strong>{money(r.effective_unit)}</strong></td>
                 <td className="num">{money(r.normalized)}</td>
-                <td className="num">{r.lead_time_weeks ?? '—'}</td>
+                <td className="num">
+                  {r.lead_time_weeks ?? '—'}
+                  {r.delta_vs_design_lead != null && r.delta_vs_design_lead !== 0 && (
+                    <div style={{ fontSize: 10, color: r.delta_vs_design_lead > 0 ? 'var(--red)' : 'var(--accent)' }}>
+                      {r.delta_vs_design_lead > 0 ? `+${r.delta_vs_design_lead}w late` : `${-r.delta_vs_design_lead}w early`}
+                    </div>
+                  )}
+                </td>
                 <td className="num">{money(r.extended)}</td>
                 <td className="num" style={{ color: 'var(--mut)' }}>
                   {oneLiveBid || r.delta_vs_low === 0 ? '—' : `${signed(r.delta_vs_low)}${signedPct(r.delta_vs_low_pct)}`}

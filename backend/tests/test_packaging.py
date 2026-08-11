@@ -6,10 +6,11 @@ Every test rolls back, so the live DB is untouched.
 from collections.abc import Iterator
 
 import pytest
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.db import SessionLocal
-from app.models import DemandLine, ScopeLine
+from app.models import DemandLine, ScopeLine, Vendor
 from app.services.freeze import DemandNotFrozen, freeze
 from app.services.packaging import (
     PackagingError,
@@ -34,9 +35,18 @@ from app.services.packaging import (
 PROJECT = "PKGTEST"
 
 
+# every bid names a firm on the roster — a free-typed vendor is the identity drift that
+# makes vendor reliability impossible to accumulate, so the service refuses it
+ROSTER = ("Eaton", "Parrish Hare", "Vertiv", "Ambient Enterprises", "Latecomer")
+
+
 @pytest.fixture
 def session() -> Iterator[Session]:
     s = SessionLocal()
+    # get-or-create: these tests run against the live database, which has real vendors in it
+    have = set(s.scalars(select(Vendor.name).where(Vendor.name.in_(ROSTER))))
+    s.add_all(Vendor(name=n) for n in ROSTER if n not in have)
+    s.flush()
     try:
         yield s
     finally:

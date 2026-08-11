@@ -20,12 +20,12 @@ interface Row {
   qty: number
   locId: string
   requiredBy: string
-  lle: boolean
+  leadWeeks: number | ''
 }
 
 let nextKey = 1
-const blank = (type = '', sub = '', lle = false): Row =>
-  ({ key: nextKey++, type, sub, qty: 1, locId: '', requiredBy: '', lle })
+const blank = (type = '', sub = '', leadWeeks: number | '' = ''): Row =>
+  ({ key: nextKey++, type, sub, qty: 1, locId: '', requiredBy: '', leadWeeks })
 const isComplete = (r: Row): boolean => r.type !== '' && r.qty >= 1
 
 export default function DesignRegister({ project, projectId }: { project: string; projectId?: string }) {
@@ -48,7 +48,7 @@ export default function DesignRegister({ project, projectId }: { project: string
     setRows((rs) => rs.map((r) => (r.key === key ? { ...r, ...patch } : r)))
   const addRow = () => {
     const last = rows[rows.length - 1]
-    setRows((rs) => [...rs, blank(last?.type ?? codes[0] ?? '', last?.sub ?? '', last?.lle ?? false)])
+    setRows((rs) => [...rs, blank(last?.type ?? codes[0] ?? '', last?.sub ?? '', last?.leadWeeks ?? '')])
   }
   const dupRow = (r: Row) =>
     setRows((rs) => rs.flatMap((x) => (x.key === r.key ? [x, { ...x, key: nextKey++, locId: '' }] : [x])))
@@ -58,7 +58,7 @@ export default function DesignRegister({ project, projectId }: { project: string
   const specOf = (r: Row) => resolveSpec(types, r.type, r.sub)
   const complete = rows.filter(isComplete)
   const totalQty = complete.reduce((n, r) => n + r.qty, 0)
-  const lleQty = complete.filter((r) => r.lle).reduce((n, r) => n + r.qty, 0)
+  const longest = complete.reduce((n, r) => Math.max(n, Number(r.leadWeeks) || 0), 0)
 
   const saveM = useMutation({
     mutationFn: () => {
@@ -73,7 +73,7 @@ export default function DesignRegister({ project, projectId }: { project: string
           target_building: loc?.building ?? null,
           target_area: loc?.area ?? null,
           required_by_date: r.requiredBy || null,
-          is_lle: r.lle,
+          lead_time_weeks: r.leadWeeks === '' ? null : Number(r.leadWeeks),
           // no ROM — pricing is the ROM face's job, over the saved record
           rom_unit_price: null,
           rom_confidence: null,
@@ -94,8 +94,8 @@ export default function DesignRegister({ project, projectId }: { project: string
     <div className="card">
       <h4 style={{ margin: 0 }}>Design register · {project}</h4>
       <p style={{ fontSize: 12, color: 'var(--mut)', margin: '4px 0 12px' }}>
-        What is needed, where, how many, by when. No cost here — the ROM prices this once it's on
-        the record, and a requirement is real whether or not history can price it.
+        What is needed, where, how many, by when, and how long it takes. No cost here — the ROM prices
+        this once it's on the record, and a requirement is real whether or not history can price it.
       </p>
 
       {locOpts.length === 0 && (
@@ -114,7 +114,7 @@ export default function DesignRegister({ project, projectId }: { project: string
             <th className="num" style={{ width: 64 }}>Qty</th>
             <th>Location</th>
             <th style={{ width: 138 }}>Required by</th>
-            <th style={{ width: 46 }} title="long-lead equipment">LLE</th>
+            <th className="num" style={{ width: 104 }} title="the design-side lead-time assumption — what turns a required-by date into a must-buy-by date">Long lead (wks)</th>
             <th style={{ width: 56 }} />
           </tr>
         </thead>
@@ -149,8 +149,9 @@ export default function DesignRegister({ project, projectId }: { project: string
                 <td>
                   <input className="si" style={{ width: '100%' }} type="date" value={r.requiredBy} onChange={(e) => editRow(r.key, { requiredBy: e.target.value })} />
                 </td>
-                <td style={{ textAlign: 'center' }}>
-                  <input type="checkbox" checked={r.lle} onChange={() => editRow(r.key, { lle: !r.lle })} title="long-lead equipment — drives what dates you can promise" />
+                <td className="num">
+                  <input className="si" style={{ width: 62, textAlign: 'right' }} type="number" min={0}
+                    value={r.leadWeeks} onChange={(e) => editRow(r.key, { leadWeeks: e.target.value === '' ? '' : Number(e.target.value) })} />
                 </td>
                 <td className="num" style={{ whiteSpace: 'nowrap' }}>
                   <button className="btn sm" title="duplicate row" onClick={() => dupRow(r)}>⧉</button>{' '}
@@ -169,7 +170,7 @@ export default function DesignRegister({ project, projectId }: { project: string
         </button>
         {complete.length > 0 && (
           <span style={{ fontSize: 12, color: 'var(--mut)' }}>
-            {count(totalQty, 'unit')}{lleQty > 0 && <> · {lleQty} long-lead</>}
+            {count(totalQty, 'unit')}{longest > 0 && <> · longest lead {longest} weeks</>}
           </span>
         )}
         {saved > 0 && <span style={{ fontSize: 12, color: 'var(--accent)' }}>✓ {count(saved, 'line')} on the register — price them on the ROM tab, then freeze below.</span>}

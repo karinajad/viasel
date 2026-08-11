@@ -141,13 +141,17 @@ def test_package_candidates_quote_and_award_then_cleanup() -> None:
         again = client.post("/packages", json={"project_id": project, "demand_line_ids": group["demand_line_ids"]})
         assert again.status_code == 409
 
-        client.post(f"/packages/{pkg['id']}/quotes", json={"vendor": "Eaton", "unit_price": 507533.0, "lead_time_weeks": 52})
-        d = client.post(
-            f"/packages/{pkg['id']}/quotes",
-            json={"vendor": "Parrish Hare", "unit_price": 306074.0, "lead_time_weeks": 34},
-        ).json()
+        # bids name firms on the roster — a free-typed vendor is refused
+        assert client.post(f"/packages/{pkg['id']}/quotes",
+                           json={"vendor": "Nobody Ltd", "unit_price": 1.0}).status_code == 409
+        eaton = client.post("/vendors", json={"name": "T-Cand Eaton", "code": "TCE"}).json()
+        ph = client.post("/vendors", json={"name": "T-Cand PH", "code": "TCP"}).json()
+        client.post(f"/packages/{pkg['id']}/quotes",
+                    json={"vendor_id": eaton["id"], "unit_price": 507533.0, "lead_time_weeks": 52})
+        d = client.post(f"/packages/{pkg['id']}/quotes",
+                        json={"vendor_id": ph["id"], "unit_price": 306074.0, "lead_time_weeks": 34}).json()
         rows = d["leveling"]
-        assert [x["vendor"] for x in rows] == ["Parrish Hare", "Eaton"]  # leveled, cheapest first
+        assert [x["vendor"] for x in rows] == ["T-Cand PH", "T-Cand Eaton"]  # leveled, cheapest first
         assert rows[0]["is_low"] and rows[0]["normalized"] == round(306074.0 / 5000, 2)
         assert rows[0]["extended"] == round(306074.0 * 20, 2)
 
@@ -156,7 +160,7 @@ def test_package_candidates_quote_and_award_then_cleanup() -> None:
         assert sorted(sl["qty"] for sl in awarded.json()) == [8, 12]  # one scope line per unit record
 
         after = client.get(f"/packages/{pkg['id']}").json()["package"]
-        assert after["state"] == "awarded" and after["awarded_vendor"] == "Parrish Hare"
+        assert after["state"] == "awarded" and after["awarded_vendor"] == "T-Cand PH"
         assert client.post(f"/packages/{pkg['id']}/award", json={"quote_id": rows[0]["quote_id"]}).status_code == 409
         states = [d["state"] for d in client.get("/demand-lines", params={"project": project}).json()]
         assert states == ["matched", "matched"]
@@ -186,6 +190,7 @@ def test_package_candidates_quote_and_award_then_cleanup() -> None:
             s.execute(text("delete from viasel.sourcing_package where project_id = :p"), {"p": project})
             s.execute(text("delete from viasel.freeze_event where project_id = :p"), {"p": project})
             s.execute(text("delete from viasel.demand_line where project_id = :p"), {"p": project})
+            s.execute(text("delete from viasel.vendor where name like 'T-Cand%'"))
             s.commit()
 
 

@@ -67,7 +67,7 @@ export interface DemandLineRow {
   target_building: string | null
   target_area: string | null
   required_by_date: string | null
-  is_lle: boolean
+  lead_time_weeks: number | null
   created_at: string
 }
 
@@ -132,7 +132,7 @@ export interface DemandLineCreate {
   rom_basis?: string
   rom_note?: string | null
   required_by_date?: string | null
-  is_lle?: boolean
+  lead_time_weeks?: number | null
 }
 
 export interface Comparable {

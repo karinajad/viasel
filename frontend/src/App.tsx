@@ -406,7 +406,7 @@ function DemandBoard({ project, projectId, showRomPass }: { project: string; pro
       {lines.length === 0 && <p style={{ color: 'var(--mut)', fontSize: 13 }}>No demand yet — price a requirement and save it.</p>}
       {lines.length > 0 && (
         <table style={{ marginTop: 8 }}>
-          <thead><tr><th style={{ width: 26 }} /><th>Requirement</th><th>Building</th><th className="num">Qty</th><th>Required by</th><th className="num">ROM / unit</th><th>Status</th><th /></tr></thead>
+          <thead><tr><th style={{ width: 26 }} /><th>Requirement</th><th>Building</th><th className="num">Qty</th><th className="num" title="design lead-time assumption, in weeks">Lead</th><th>Required by</th><th className="num">ROM / unit</th><th>Status</th><th /></tr></thead>
           <tbody>
             {lines.map((d) => (
               <tr key={d.id}>
@@ -417,7 +417,8 @@ function DemandBoard({ project, projectId, showRomPass }: { project: string; pro
                 </td>
                 <td>{describe(d) || '—'}</td>
                 <td>{d.target_building ?? '—'}{d.target_area ? ` · ${d.target_area}` : ''}</td>
-                <td className="num">{d.qty}{d.is_lle && <span title="long-lead equipment" style={{ color: 'var(--amber)', fontWeight: 700 }}> ⌛</span>}</td>
+                <td className="num">{d.qty}</td>
+                <td className="num" style={{ color: d.lead_time_weeks == null ? 'var(--line)' : 'var(--mut)' }}>{d.lead_time_weeks ?? '—'}</td>
                 <td style={{ color: d.required_by_date ? 'var(--ink)' : 'var(--line)' }}>{d.required_by_date ?? '—'}</td>
                 <td className="num" title={d.rom_note ?? undefined}>
                   {money(d.rom_unit_price)}
@@ -434,6 +435,7 @@ function DemandBoard({ project, projectId, showRomPass }: { project: string; pro
                 Board total · {count(lines.length, 'line')}
               </td>
               <td className="num"><strong>{lines.reduce((n, d) => n + d.qty, 0)}</strong></td>
+              <td />
               <td />
               <td className="num" colSpan={3} style={{ fontVariantNumeric: 'tabular-nums' }}>
                 <strong>{money(lines.reduce((n, d) => n + (d.rom_unit_price ?? 0) * d.qty, 0))}</strong>

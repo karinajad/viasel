@@ -22,6 +22,7 @@ export interface PackageLineRead {
   target_area: string | null
   state: string
   rom_unit_price: number | null
+  lead_time_weeks: number | null
 }
 
 /** One bid, on the same footing as every other bid on the lot. */
@@ -42,6 +43,8 @@ export interface LevelingRow {
   delta_vs_low_pct: number | null
   delta_vs_rom: number | null
   delta_vs_rom_pct: number | null
+  /** vendor's weeks minus what design assumed — negative is time won back */
+  delta_vs_design_lead: number | null
   is_low: boolean
   is_selected: boolean
 }
@@ -59,6 +62,7 @@ export interface PackageRead {
   total_qty: number
   rom_unit_price: number | null
   rom_extended: number | null
+  design_lead_weeks: number | null
   quote_count: number
   declined_count: number
   awarded_vendor: string | null
