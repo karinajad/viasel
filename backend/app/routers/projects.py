@@ -183,8 +183,13 @@ def update_location(
     project_id: uuid.UUID, loc_id: uuid.UUID, body: LocationUpdate, session: Session = Depends(get_session)
 ) -> ProjectLocation:
     loc = _get_location(session, project_id, loc_id)
-    _assert_legend_editable(session, project_id)
-    for field, value in body.model_dump(exclude_unset=True).items():
+    patch = body.model_dump(exclude_unset=True)
+    # the legend freeze exists so codes can't drift. `code` and `kind` are the crosswalk keys
+    # and stay locked; a building's capacity and label are attributes of it, not identity, and
+    # refining them doesn't move a code — so the freeze has no business blocking them.
+    if any(k in patch for k in ("code", "kind")):
+        _assert_legend_editable(session, project_id)
+    for field, value in patch.items():
         setattr(loc, field, value)
     session.commit()
     session.refresh(loc)

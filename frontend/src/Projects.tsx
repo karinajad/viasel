@@ -204,21 +204,31 @@ function BuildingCapacity({ projectId, projectMw }: { projectId: string; project
   const q = useQuery({ queryKey: ['locations', projectId], queryFn: () => apiGet<ProjectLocation[]>(`/projects/${projectId}/locations`) })
   const buildings = (q.data ?? []).filter((l) => l.kind === 'building').sort(byCode)
   const [edits, setEdits] = useState<Record<string, number | ''>>({})
+  const [failed, setFailed] = useState<{ code: string; detail: string } | null>(null)
   const saveM = useMutation({
-    mutationFn: ({ id, mw }: { id: string; mw: number | null }) =>
+    mutationFn: ({ id, mw }: { id: string; mw: number | null; code: string }) =>
       apiPatch(`/projects/${projectId}/locations/${id}`, { mw_it: mw }),
-    onSuccess: () => {
+    onSuccess: (_r, { id }) => {
+      setFailed(null)
+      setEdits((d) => { const { [id]: _drop, ...rest } = d; return rest })  // fall back to the server value
       qc.invalidateQueries({ queryKey: ['locations', projectId] })
       qc.invalidateQueries({ queryKey: ['capacity', projectId] })
+    },
+    onError: (e, { id, code }) => {
+      // never leave a rejected number sitting in the box looking saved
+      setEdits((d) => { const { [id]: _drop, ...rest } = d; return rest })
+      setFailed({ code, detail: String(e).replace(/^Error:\s*/, '') })
     },
   })
   const shown = (b: ProjectLocation) => (b.id in edits ? edits[b.id] : (b.mw_it ?? ''))
   const commit = (b: ProjectLocation) => {
     const v = shown(b)
     const next = v === '' ? null : Number(v)
-    if (next !== (b.mw_it ?? null)) saveM.mutate({ id: b.id, mw: next })
+    if (next !== (b.mw_it ?? null)) saveM.mutate({ id: b.id, mw: next, code: b.code })
   }
-  const assigned = buildings.reduce((n, b) => n + Number(shown(b) || 0), 0)
+  // the tally counts what is *saved*. Counting the boxes would have let a rejected save
+  // read as "balanced" while the record held nothing.
+  const assigned = buildings.reduce((n, b) => n + Number(b.mw_it ?? 0), 0)
   const remainder = projectMw == null ? null : Math.round((projectMw - assigned) * 1000) / 1000
 
   if (buildings.length === 0) return null
@@ -247,7 +257,12 @@ function BuildingCapacity({ projectId, projectMw }: { projectId: string; project
           {remainder === 0 && <span style={{ color: 'var(--accent)' }}> · balanced</span>}
         </div>
       </div>
-      {saveM.isError && <div className="note">{String(saveM.error).replace(/^Error:\s*/, '')}</div>}
+      {failed && (
+        <div className="note">
+          Couldn't save <strong>{failed.code}</strong>'s capacity — {failed.detail}. The box has been
+          put back to what's on the record.
+        </div>
+      )}
     </div>
   )
 }

@@ -303,3 +303,36 @@ def test_vendor_roster_is_one_record_per_firm_and_gates_bidding() -> None:
             ):
                 s.execute(text(q))
             s.commit()
+
+
+def test_legend_freeze_locks_codes_not_capacity() -> None:
+    """The freeze exists so codes can't drift. A building's MW is an attribute, not identity."""
+    p = client.post("/projects", json={"name": "APIFROZEN"}).json()
+    try:
+        client.patch(f"/projects/{p['id']}", json={"mw_it": 40})
+        for code in ("A", "B"):
+            client.post(f"/projects/{p['id']}/locations", json={"code": code, "kind": "building"})
+        client.post(f"/projects/{p['id']}/legend/freeze", json={"actor": "test"})
+        locs = {loc["code"]: loc for loc in client.get(f"/projects/{p['id']}/locations").json()}
+
+        # capacity and label are attributes — editable with the legend frozen
+        for code, mw in (("A", 25), ("B", 15)):
+            r = client.patch(f"/projects/{p['id']}/locations/{locs[code]['id']}", json={"mw_it": mw})
+            assert r.status_code == 200, r.text
+        assert client.get(f"/projects/{p['id']}/capacity").json()["reconciles"] is True
+        assert client.patch(f"/projects/{p['id']}/locations/{locs['A']['id']}",
+                            json={"label": "Compute 1"}).status_code == 200
+
+        # the crosswalk keys stay locked
+        for patch in ({"code": "A1"}, {"kind": "area"}):
+            assert client.patch(f"/projects/{p['id']}/locations/{locs['A']['id']}",
+                                json=patch).status_code == 409
+        assert client.post(f"/projects/{p['id']}/locations",
+                           json={"code": "C", "kind": "building"}).status_code == 409
+        assert client.delete(f"/projects/{p['id']}/locations/{locs['B']['id']}").status_code == 409
+    finally:
+        with SessionLocal() as s:
+            for table in ("project_location", "legend_event"):
+                s.execute(text(f"delete from viasel.{table} where project_id = :i"), {"i": p["id"]})
+            s.execute(text("delete from viasel.project where id = :i"), {"i": p["id"]})
+            s.commit()
