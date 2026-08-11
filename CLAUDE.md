@@ -75,18 +75,42 @@ equipment**, not by a project, platform, or party. It outlives every system it t
 · `GET/POST /demand-lines/{id}/quotes` · `POST /demand-lines/{id}/award` (the package-of-one shortcut; the UI
 uses packages) · `GET /health` (open).
 
-## Roadmap — next faces (NOT built)
-- **Paste-from-Excel into the line-item grid:** the real unlock for hundreds of lines — needs its own
-  column-mapping face.
-- **Split award** (one lot, two vendors by building) — schema already allows it, allocation rules don't exist yet.
-- **Quantity inference** — units per MW IT from delivered projects, the mirror of the ROM's $/denominator.
-  Project detail now carries the denominators; the ratio library needs more than one campus to seed.
-- **Agreement / Exhibits:** exhibits are **generated from the record** (never a template a counterparty fills in),
-  through a **contracts portal**; the **executed (signed) exhibit is stored back and reconciled field-by-field**
-  against what Viasel generated (flag any drift); **required-document dropdowns keyed to lifecycle gates** (Schedule D),
-  with *"prior to final payment"* as a withholding/retainage lever.
-- **Cost reconciliation (the wedge):** record's derived commitment vs. the cost/contract system → catches the
-  $1.279M-type gap. Logistics/custody · Operations (telemetry) · Disposition/provenance.
+## Roadmap — next up (NOT built)
+**`plans/12` is the current plan — dates, allocation, and change.** It came out of asking where ROJ
+dates come from, which exposed three problems behind one typed field:
+
+1. **Client milestones at project level.** There are two ROJs: what the client tells us must be
+   complete (the parameter the ROM plans against) and what we put on a PO (deliberately months
+   earlier). Milestones are keyed to the **location legend**, with source and provenance. We are not
+   their origin — P6 owns them; manual entry is the bootstrap.
+2. **The date chain — four dates, three derived.** client milestone → required-by (− site allowance)
+   → vendor ROJ (− delivery buffer) → required-PO-date (− lead time, spec §6). Every allowance is a
+   **visible project parameter**; every override is recorded with a reason, like `rom_basis`. The
+   delivery schedule's typed ROJ date today is a **stopgap**. A milestone that moves under committed
+   supply is the alert this whole chain exists to produce — never auto-applied.
+3. **Allocation may be unknown at buy time.** Their Shipping Capacity tab literally has a
+   *"Project Overall (if not yet itemized)"* row. Exhibits must print "not yet itemized", never a
+   blank cell. Firming allocation later is a **change event with no commercial effect** (spec §19,
+   origin `Program`) — *not* a demand revision, so it must not need a thaw. Unallocated demand
+   freezes at project scope only.
+4. **Change orders.** Append-only scope lines (`ScopeLine.change_type` exists, nothing writes
+   non-baseline yet), the pre-tax/tax value waterfall, and `approved` kept apart from
+   `contemplated/TBD`. Don't trust a CO's stated schedule impact — their COs report zero-day
+   impact while adding whole units.
+5. **Schedule ingest last** — P6/GC upload or port feeding the milestone object. Deliberately last:
+   settle the shape by hand before building an importer for it.
+
+**Also unbuilt, decided but not started:** exhibits currently need an **awarded** lot; they should be
+workable against a **recommended** one (an award memo *is* the exhibits put to approvers), which means
+recommending creates provisional scope lines and moves demand to `matching`. Needs a go-ahead.
+
+**Later:** paste-from-Excel into the Design register · split award (one lot, two vendors) ·
+**cost reconciliation — the wedge**, derived commitment vs. the cost/contract system, catching the
+$1.279M-class gap · logistics/custody · operations telemetry · disposition/provenance.
+
+⚠️ **Not** quantity inference from a units-per-MW ratio library. Equipment count is
+`load ÷ unit size × redundancy` — an equation, not a regression, and a ratio would silently import
+the last project's topology. History's role there is a check, not the source.
 
 ## How to run
 ```bash
