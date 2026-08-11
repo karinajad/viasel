@@ -43,14 +43,17 @@ class LevelingRow(BaseModel):
     quote_id: uuid.UUID
     vendor: str
     oem: str | None
-    unit_price: float
-    normalized: float  # per denominator unit — the only number that compares across vendors
+    unit_price: float  # equipment only — not what the unit costs
+    effective_unit: float  # all-in for this lot size, one-time cost amortized
+    layers: dict[str, float]  # equipment · services · freight · discount · one_time_amortized
+    normalized: float  # all-in per denominator unit — what compares across vendors
     lead_time_weeks: int | None
     terms_note: str | None
-    state: str
+    state: str  # received | selected | declined
+    disposition_reason: str | None
 
     extended: float  # the whole lot at this bid
-    delta_vs_low: float
+    delta_vs_low: float  # against the cheapest *awardable* bid
     delta_vs_low_pct: float | None
     delta_vs_rom: float | None  # against what the executed record says the lot should cost
     delta_vs_rom_pct: float | None
@@ -73,7 +76,8 @@ class PackageRead(BaseModel):
     total_qty: int
     rom_unit_price: float | None
     rom_extended: float | None
-    quote_count: int
+    quote_count: int  # live bids
+    declined_count: int
     awarded_vendor: str | None
     awarded_extended: float | None
 
@@ -86,11 +90,20 @@ class PackageDetail(BaseModel):
 
 class PackageQuoteCreate(BaseModel):
     vendor: str
-    unit_price: float
+    unit_price: float  # equipment, per unit
     oem: str | None = None
     lead_time_weeks: int | None = None
     terms_note: str | None = None
+    # cost layers — per unit, except one_time_cost which is per order
+    services_unit: float | None = None  # startup · commissioning · IST · warranty
+    freight_unit: float | None = None
+    discount_unit: float | None = None  # positive = subtracted
+    one_time_cost: float | None = None  # factory witness test · owner's training
 
 
 class PackageAwardRequest(BaseModel):
     quote_id: uuid.UUID
+
+
+class QuoteDeclineRequest(BaseModel):
+    reason: str = Field(min_length=1)  # ruling a bid out requires a stated reason

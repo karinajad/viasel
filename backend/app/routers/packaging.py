@@ -13,6 +13,7 @@ from app.schemas.packaging import (
     PackageDetail,
     PackageQuoteCreate,
     PackageRead,
+    QuoteDeclineRequest,
 )
 from app.schemas.sourcing import ScopeLineRead
 from app.services.freeze import DemandNotFrozen, InvalidTransition
@@ -22,6 +23,7 @@ from app.services.packaging import (
     award_package,
     candidates,
     create_package,
+    decline_quote,
     detail,
     list_packages,
     remove_line,
@@ -77,8 +79,28 @@ def post_package_quote(
         add_package_quote(
             session, pkg, body.vendor, body.unit_price,
             oem=body.oem, lead_time_weeks=body.lead_time_weeks, terms_note=body.terms_note,
+            services_unit=body.services_unit, freight_unit=body.freight_unit,
+            discount_unit=body.discount_unit, one_time_cost=body.one_time_cost,
         )
     except (PackagingError, DemandNotFrozen) as e:
+        raise _conflict(e) from e
+    session.commit()
+    return detail(session, pkg)
+
+
+@router.post("/{pkg_id}/quotes/{quote_id}/decline", response_model=PackageDetail)
+def post_decline_quote(
+    pkg_id: uuid.UUID, quote_id: uuid.UUID, body: QuoteDeclineRequest,
+    session: Session = Depends(get_session),
+) -> PackageDetail:
+    """Rule a bid out with a stated reason. It stays in the record as market data."""
+    pkg = _package(session, pkg_id)
+    quote = session.get(Quote, quote_id)
+    if quote is None:
+        raise HTTPException(status_code=404, detail="quote not found")
+    try:
+        decline_quote(session, pkg, quote, body.reason)
+    except PackagingError as e:
         raise _conflict(e) from e
     session.commit()
     return detail(session, pkg)

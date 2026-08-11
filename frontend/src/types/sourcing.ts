@@ -30,10 +30,13 @@ export interface LevelingRow {
   vendor: string
   oem: string | null
   unit_price: number
+  effective_unit: number
+  layers: Record<string, number>
   normalized: number
   lead_time_weeks: number | null
   terms_note: string | null
   state: string
+  disposition_reason: string | null
   extended: number
   delta_vs_low: number
   delta_vs_low_pct: number | null
@@ -57,6 +60,7 @@ export interface PackageRead {
   rom_unit_price: number | null
   rom_extended: number | null
   quote_count: number
+  declined_count: number
   awarded_vendor: string | null
   awarded_extended: number | null
 }

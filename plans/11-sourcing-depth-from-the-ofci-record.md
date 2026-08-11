@@ -114,21 +114,34 @@ Workbooks were parsed for cached cell values, not evaluated formulas.
    order-level costs exist. Needs `Σ(unit × qty) + one_time + services + freight − discount`, with the
    effective per-unit figure amortizing one-time cost over the lot. This is a correctness bug today,
    not a future feature.
-2. **`sourcing_package` is the spec's `SOLICITATION` (§7) under a different name** — and is missing its
-   `invited_vendors[]`, `issued_date`, and `response_due`. Reconcile the naming to the spec rather than
-   carrying two vocabularies. One real divergence to settle deliberately: the spec puts
-   `demand_line_id` on `QUOTE` (bid per line), while the Cheyenne sheet takes **one bid for the lot**
-   and the award memo **allocates per building afterward** (Exhibit A: A|B|S|C|D|House with % per
-   building). The documents win — bid at lot level, allocate at award — which is what
-   `award_package()` already does. Amend the spec, don't amend the code.
+2. ~~**Rename `sourcing_package` → `solicitation`** to match spec §7.~~ **Withdrawn on implementation.**
+   The spec's `SOLICITATION` carries *issuance* semantics — `invited_vendors[]`, `issued_date`,
+   `response_due` — i.e. the act of going to market. `sourcing_package` is the *lot*: a grouping of
+   demand on physics. They coincide today only because we happen to solicit one lot at a time.
+   Related's own governance keeps them apart too: the sourcing-level unit is an **Equipment Template**
+   folder (batched by equipment type) with **Bid Leveling** *inside* it. Renaming would conflate a
+   grouping with an event, and would block the obvious next step — one solicitation covering several
+   lots to one vendor, which is how cross-lot bundling arrives. Keep `sourcing_package`; add
+   `SOLICITATION` as a separate object in Packet 3 with `invited_vendors[] · issued_date ·
+   response_due`, pointing at one or more packages.
+
+   The genuine divergence still stands and the documents win: the spec puts `demand_line_id` on
+   `QUOTE` (bid per line), while the Cheyenne sheet takes **one bid for the lot** and the award memo
+   **allocates per building afterward** (Exhibit A: A|B|S|C|D|House with % per building). Bid at lot
+   level, allocate at award — which is what `award_package()` already does. Amend the spec, not the code.
 3. **`quote` has no `disposition_reason`.** Spec §7 says losing quotes are market data; every ruled-out
    bid in the real sheet carries a written reason, and none of it is capturable.
 
 ## D. Sequence
 
-**Packet 1 — leveling truth (small, corrective)**
-One-time vs per-unit cost layers · discount · amortized effective unit price · `disposition_reason` on
-quote · rename to `solicitation`. Fixes a live bug and makes split-award math honest.
+**Packet 1 — leveling truth (small, corrective) — EXECUTED (migration `0006`)**
+Cost layers on `quote` (`services_unit · freight_unit · discount_unit · one_time_cost`) · `bid_layers()`
+and `effective_unit()` · leveling normalizes and extends the **all-in**, not the equipment price ·
+one-time cost amortizes over the lot · award commits the all-in figure · `decline_quote()` with a
+required reason, and declined bids stay as market data without setting the benchmark.
+Verified against the real Cheyenne chiller lot: all three bids' all-in unit prices and extended totals
+reproduce the sheet exactly ($550,053 / $625,877 / $761,315; $46.20M / $52.57M / $63.95M).
+Rename withdrawn — see Corrections §2.
 
 **Packet 2 — the clock at sourcing (§5/§6, highest leverage)**
 `LEAD_TIME_BASELINE` / `CONDITION_ADJUSTMENT` / `VENDOR_OVERRIDE` with provenance · `required_po_date`

@@ -203,9 +203,19 @@ class Quote(Base):
     denominator: Mapped[str | None] = mapped_column(String)
     size: Mapped[float | None] = mapped_column(Numeric)
     terms_note: Mapped[str | None] = mapped_column(String)
+
+    # cost layers — `unit_price` above is equipment only. Services/freight/discount are per
+    # unit; `one_time_cost` is per ORDER (factory witness test, owner's training) and so
+    # amortizes over the lot — which is why an all-in unit price depends on the quantity.
+    services_unit: Mapped[float | None] = mapped_column(Numeric)
+    freight_unit: Mapped[float | None] = mapped_column(Numeric)
+    discount_unit: Mapped[float | None] = mapped_column(Numeric)  # positive = subtracted
+    one_time_cost: Mapped[float | None] = mapped_column(Numeric)
+
     state: Mapped[str] = mapped_column(
         String, default="received", server_default=text("'received'"), nullable=False
-    )
+    )  # received | selected | declined
+    disposition_reason: Mapped[str | None] = mapped_column(String)  # why a bid was ruled out
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 

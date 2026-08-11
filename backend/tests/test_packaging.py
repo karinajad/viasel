@@ -15,9 +15,12 @@ from app.services.packaging import (
     PackagingError,
     add_package_quote,
     award_package,
+    bid_layers,
     candidates,
     create_package,
+    decline_quote,
     detail,
+    effective_unit,
     leveling,
     package_lines,
     package_quotes,
@@ -200,3 +203,107 @@ def test_a_quote_from_another_package_cannot_win_this_one(session: Session) -> N
     q2 = add_package_quote(session, p2, "Eaton", 200000.0)
     with pytest.raises(PackagingError, match="not a bid on this package"):
         award_package(session, p1, q2)
+
+
+def test_all_in_unit_price_stacks_every_layer_and_amortizes_one_time_cost(session: Session) -> None:
+    """Arithmetic checked against the real Cheyenne chiller lot (84 units, winning bid).
+
+    equipment 608,380 + services&freight 29,450 − discount 12,756.60
+      + one-time 67,500/84  ==  625,876.97 all-in per unit
+      × 84                  ==  52,573,665.60 extended
+    """
+    lines = [_line(session, size=343, qty=84, building="C1", type_query="Air-Cooled Chiller",
+                   denominator="$/ton", rom=771768.0)]
+    pkg = create_package(session, PROJECT, [lines[0].id])
+    q = add_package_quote(
+        session, pkg, "Ambient Enterprises", 608380.0, oem="Dunham Bush", lead_time_weeks=36,
+        services_unit=29450.0, discount_unit=12756.60, one_time_cost=67500.0,
+    )
+
+    assert round(effective_unit(q, 84), 2) == 625876.97
+    layers = bid_layers(q, 84)
+    assert layers["equipment"] == 608380.0
+    assert layers["discount"] == -12756.60
+    assert layers["one_time_amortized"] == round(67500 / 84, 2)
+    assert layers["one_time_total"] == 67500.0
+
+    row = leveling(pkg, package_lines(session, pkg), package_quotes(session, pkg))[0]
+    assert row.effective_unit == 625876.97
+    # extended is built from the unrounded per-unit figure — cents of amortization rounding
+    # must not propagate into a lot total
+    assert row.extended == 52573665.6  # not unit_price × qty — that would be 51,103,920
+    assert row.unit_price == 608380.0  # equipment alone is still visible
+    assert row.normalized == round(625876.97 / 343, 2)  # all-in per ton, not equipment per ton
+
+
+def test_one_time_cost_amortizes_over_the_lot_so_a_smaller_lot_costs_more_per_unit(
+    session: Session,
+) -> None:
+    big = _line(session, size=5000, qty=20, building="C1")
+    small = _line(session, size=5000, qty=4, building="C2")
+    pkg_big = create_package(session, PROJECT, [big.id])
+    pkg_small = create_package(session, PROJECT, [small.id])
+    for pkg in (pkg_big, pkg_small):
+        add_package_quote(session, pkg, "Eaton", 300000.0, one_time_cost=60000.0)
+
+    q_big = package_quotes(session, pkg_big)[0]
+    q_small = package_quotes(session, pkg_small)[0]
+    assert effective_unit(q_big, 20) == 303000.0  # 60,000 / 20
+    assert effective_unit(q_small, 4) == 315000.0  # 60,000 / 4 — the split-award penalty
+    # splitting the 20-unit lot in two would pay the 60,000 layer twice
+    assert effective_unit(q_big, 10) * 10 * 2 == pytest.approx(6120000.0)
+    assert effective_unit(q_big, 20) * 20 == 6060000.0
+
+
+def test_a_declined_bid_stays_as_market_data_but_stops_setting_the_benchmark(
+    session: Session,
+) -> None:
+    dl = _line(session, size=343, qty=84, building="C1", rom=700000.0)
+    pkg = create_package(session, PROJECT, [dl.id])
+    cheap = add_package_quote(session, pkg, "Vertiv", 550053.0)
+    compliant = add_package_quote(session, pkg, "Ambient Enterprises", 625877.0)
+
+    decline_quote(session, pkg, cheap, "deviates on power input — 1.44 kW/ton vs 1.05 spec")
+
+    rows = {r.vendor: r for r in leveling(pkg, package_lines(session, pkg), package_quotes(session, pkg))}
+    assert rows["Vertiv"].state == "declined"
+    assert rows["Vertiv"].disposition_reason is not None and "kW/ton" in rows["Vertiv"].disposition_reason
+    assert not rows["Vertiv"].is_low  # ruled out — it no longer sets the benchmark
+    assert rows["Ambient Enterprises"].is_low
+    # the ruled-out bid shows a negative delta: what compliance is costing
+    assert rows["Vertiv"].delta_vs_low == round(550053.0 - 625877.0, 2)
+    assert rows["Ambient Enterprises"].delta_vs_low == 0.0
+
+    d = detail(session, pkg)
+    assert d.package.quote_count == 1 and d.package.declined_count == 1
+    with pytest.raises(PackagingError, match="ruled out"):
+        award_package(session, pkg, cheap)
+    assert award_package(session, pkg, compliant)
+
+
+def test_declining_requires_a_reason_and_an_awarded_bid_cannot_be_declined(
+    session: Session,
+) -> None:
+    dl = _line(session, size=5000, qty=12, building="C1")
+    pkg = create_package(session, PROJECT, [dl.id])
+    q = add_package_quote(session, pkg, "Eaton", 500000.0)
+    with pytest.raises(PackagingError, match="requires a stated reason"):
+        decline_quote(session, pkg, q, "")
+    award_package(session, pkg, q)
+    with pytest.raises(PackagingError, match="cannot be declined"):
+        decline_quote(session, pkg, q, "changed my mind")
+
+
+def test_award_commits_the_all_in_price_not_the_equipment_price(session: Session) -> None:
+    a = _line(session, size=5000, qty=12, building="C1")
+    b = _line(session, size=5000, qty=8, building="C2")
+    pkg = create_package(session, PROJECT, [a.id, b.id])
+    q = add_package_quote(
+        session, pkg, "Parrish Hare", 300000.0,
+        services_unit=5000.0, freight_unit=2000.0, one_time_cost=20000.0,
+    )
+    scope_lines = award_package(session, pkg, q)
+
+    allin = 300000.0 + 5000.0 + 2000.0 + 1000.0  # 20,000 / 20 units
+    assert all(sl.unit_price == allin for sl in scope_lines)
+    assert detail(session, pkg).package.awarded_extended == allin * 20

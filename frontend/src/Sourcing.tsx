@@ -131,7 +131,7 @@ function Packages({ project, packages, loading }: { project: string; packages: P
                   <td>{label(p)} <span style={{ color: 'var(--mut)' }}>· {p.line_count} lines</span></td>
                   <td className="num">{p.total_qty}</td>
                   <td className="num">{money(p.rom_extended)}</td>
-                  <td className="num">{p.quote_count}</td>
+                  <td className="num">{p.quote_count}{p.declined_count > 0 && <span style={{ color: 'var(--mut)', fontSize: 11 }}> +{p.declined_count} out</span>}</td>
                   <td><span className="st" style={{ background: p.state === 'awarded' ? 'var(--accent)' : '#6b7280' }}>{p.state}</span></td>
                   <td className="num">{p.awarded_vendor ? <>{p.awarded_vendor}<br /><span style={{ color: 'var(--mut)', fontSize: 11 }}>{money(p.awarded_extended)}</span></> : '—'}</td>
                   <td className="num">
@@ -159,17 +159,35 @@ function PackagePanel({ packageId, project }: { packageId: string; project: stri
   const [oem, setOem] = useState('')
   const [unit, setUnit] = useState<number | ''>('')
   const [lead, setLead] = useState<number | ''>('')
+  const [services, setServices] = useState<number | ''>('')
+  const [freight, setFreight] = useState<number | ''>('')
+  const [discount, setDiscount] = useState<number | ''>('')
+  const [oneTime, setOneTime] = useState<number | ''>('')
   const [confirming, setConfirming] = useState<string | null>(null)
+  const [declining, setDeclining] = useState<string | null>(null)
+  const [declineReason, setDeclineReason] = useState('')
 
   const refresh = () => {
     qc.invalidateQueries({ queryKey: ['package', packageId] })
     qc.invalidateQueries({ queryKey: ['packages', project] })
   }
+  const num = (v: number | '') => (v === '' ? null : Number(v))
   const bidM = useMutation({
     mutationFn: () => apiPost<PackageDetail>(`/packages/${packageId}/quotes`, {
-      vendor, oem: oem || null, unit_price: Number(unit), lead_time_weeks: lead === '' ? null : Number(lead),
+      vendor, oem: oem || null, unit_price: Number(unit), lead_time_weeks: num(lead),
+      services_unit: num(services), freight_unit: num(freight),
+      discount_unit: num(discount), one_time_cost: num(oneTime),
     }),
-    onSuccess: () => { setVendor(''); setOem(''); setUnit(''); setLead(''); refresh() },
+    onSuccess: () => {
+      setVendor(''); setOem(''); setUnit(''); setLead('')
+      setServices(''); setFreight(''); setDiscount(''); setOneTime('')
+      refresh()
+    },
+  })
+  const declineM = useMutation({
+    mutationFn: (quoteId: string) =>
+      apiPost(`/packages/${packageId}/quotes/${quoteId}/decline`, { reason: declineReason }),
+    onSuccess: () => { setDeclining(null); setDeclineReason(''); refresh() },
   })
   const awardM = useMutation({
     mutationFn: (quoteId: string) => apiPost(`/packages/${packageId}/award`, { quote_id: quoteId }),
@@ -208,12 +226,23 @@ function PackagePanel({ packageId, project }: { packageId: string; project: stri
 
       <Sub>Bid leveling · every bid per {pkg.denominator}, against the {money(pkg.rom_unit_price)}/unit the record already says</Sub>
       {!awarded && (
-        <div style={{ display: 'flex', gap: 8, marginBottom: 10, flexWrap: 'wrap' }}>
-          <input className="si" style={{ width: 130 }} placeholder="Vendor" value={vendor} onChange={(e) => setVendor(e.target.value)} />
-          <input className="si" style={{ width: 110 }} placeholder="OEM" value={oem} onChange={(e) => setOem(e.target.value)} />
-          <input className="si" style={{ width: 120 }} type="number" placeholder="$ / unit" value={unit} onChange={(e) => setUnit(e.target.value === '' ? '' : Number(e.target.value))} />
-          <input className="si" style={{ width: 96 }} type="number" placeholder="Lead (wk)" value={lead} onChange={(e) => setLead(e.target.value === '' ? '' : Number(e.target.value))} />
-          <button className="btn sm" style={{ background: 'var(--ink)', color: '#fff', borderColor: 'var(--ink)' }} onClick={() => bidM.mutate()} disabled={!vendor || unit === '' || bidM.isPending}>Add bid</button>
+        <div style={{ marginBottom: 10 }}>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 6 }}>
+            <input className="si" style={{ width: 130 }} placeholder="Vendor" value={vendor} onChange={(e) => setVendor(e.target.value)} />
+            <input className="si" style={{ width: 110 }} placeholder="OEM" value={oem} onChange={(e) => setOem(e.target.value)} />
+            <input className="si" style={{ width: 118 }} type="number" placeholder="equipment $/unit" value={unit} onChange={(e) => setUnit(e.target.value === '' ? '' : Number(e.target.value))} />
+            <input className="si" style={{ width: 96 }} type="number" placeholder="Lead (wk)" value={lead} onChange={(e) => setLead(e.target.value === '' ? '' : Number(e.target.value))} />
+          </div>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+            <input className="si" style={{ width: 118 }} type="number" placeholder="services $/unit" title="startup · commissioning · IST · warranty, per unit" value={services} onChange={(e) => setServices(e.target.value === '' ? '' : Number(e.target.value))} />
+            <input className="si" style={{ width: 104 }} type="number" placeholder="freight $/unit" value={freight} onChange={(e) => setFreight(e.target.value === '' ? '' : Number(e.target.value))} />
+            <input className="si" style={{ width: 110 }} type="number" placeholder="discount $/unit" value={discount} onChange={(e) => setDiscount(e.target.value === '' ? '' : Number(e.target.value))} />
+            <input className="si" style={{ width: 138 }} type="number" placeholder="one-time $ (whole order)" title="factory witness test · owner's training — per order, amortized over the lot" value={oneTime} onChange={(e) => setOneTime(e.target.value === '' ? '' : Number(e.target.value))} />
+            <button className="btn sm" style={{ background: 'var(--ink)', color: '#fff', borderColor: 'var(--ink)' }} onClick={() => bidM.mutate()} disabled={!vendor || unit === '' || bidM.isPending}>Add bid</button>
+          </div>
+          <div style={{ fontSize: 11, color: '#9aa0a6', marginTop: 4 }}>
+            One-time cost is per order, so it amortizes over the {pkg.total_qty} units — split this lot and you pay it twice.
+          </div>
         </div>
       )}
 
@@ -223,7 +252,7 @@ function PackagePanel({ packageId, project }: { packageId: string; project: stri
           <thead>
             <tr>
               <th>Vendor</th>
-              <th className="num">$ / unit</th>
+              <th className="num">All-in $ / unit</th>
               <th className="num">per {pkg.denominator}</th>
               <th className="num">Lead</th>
               <th className="num">Extended ({pkg.total_qty})</th>
@@ -233,26 +262,42 @@ function PackagePanel({ packageId, project }: { packageId: string; project: stri
             </tr>
           </thead>
           <tbody>
-            {leveling.map((r) => (
-              <tr key={r.quote_id} style={{ background: r.is_selected ? '#eef7f0' : 'transparent' }}>
+            {leveling.map((r) => {
+              const out = r.state === 'declined'
+              return (
+              <tr key={r.quote_id} style={{ background: r.is_selected ? '#eef7f0' : 'transparent', opacity: out ? 0.55 : 1 }}>
                 <td>
-                  <strong>{r.vendor}</strong>{r.oem && <span style={{ color: 'var(--mut)' }}> · {r.oem}</span>}
-                  {r.is_low && !awarded && <span style={{ color: 'var(--accent)', fontSize: 11 }}> · lowest</span>}
+                  <strong style={{ textDecoration: out ? 'line-through' : 'none' }}>{r.vendor}</strong>
+                  {r.oem && <span style={{ color: 'var(--mut)' }}> · {r.oem}</span>}
+                  {r.is_low && !awarded && <span style={{ color: 'var(--accent)', fontSize: 11 }}> · lowest awardable</span>}
                   {r.is_selected && <span style={{ color: 'var(--accent)', fontSize: 11, fontWeight: 600 }}> · awarded</span>}
+                  <div style={{ fontSize: 10.5, color: '#9aa0a6', fontVariantNumeric: 'tabular-nums' }}>
+                    equip {money(r.layers.equipment)}
+                    {!!r.layers.services && <> · svc {money(r.layers.services)}</>}
+                    {!!r.layers.freight && <> · frt {money(r.layers.freight)}</>}
+                    {!!r.layers.discount && <> · disc {money(r.layers.discount)}</>}
+                    {!!r.layers.one_time_total && <> · one-time {money(r.layers.one_time_total)} ÷ {pkg.total_qty} = {money(r.layers.one_time_amortized)}</>}
+                  </div>
+                  {out && r.disposition_reason && (
+                    <div style={{ fontSize: 11, color: 'var(--red)' }}>ruled out — {r.disposition_reason}</div>
+                  )}
                 </td>
-                <td className="num">{money(r.unit_price)}</td>
+                <td className="num"><strong>{money(r.effective_unit)}</strong></td>
                 <td className="num">{money(r.normalized)}</td>
                 <td className="num">{r.lead_time_weeks ?? '—'}</td>
                 <td className="num">{money(r.extended)}</td>
-                <td className="num" style={{ color: r.delta_vs_low === 0 ? 'var(--accent)' : 'var(--mut)' }}>
+                <td className="num" style={{ color: r.delta_vs_low === 0 ? 'var(--accent)' : r.delta_vs_low < 0 ? 'var(--mut)' : 'var(--mut)' }}>
                   {r.delta_vs_low === 0 ? '—' : `${signed(r.delta_vs_low)}${signedPct(r.delta_vs_low_pct)}`}
                 </td>
                 <td className="num" style={{ color: r.delta_vs_rom == null ? 'var(--mut)' : r.delta_vs_rom > 0 ? 'var(--red)' : 'var(--accent)' }}>
                   {r.delta_vs_rom == null ? '—' : `${signed(r.delta_vs_rom)}${signedPct(r.delta_vs_rom_pct)}`}
                 </td>
                 <td className="num" style={{ whiteSpace: 'nowrap' }}>
-                  {!awarded && confirming !== r.quote_id && (
-                    <button className="btn sm" style={{ borderColor: 'var(--accent)', color: 'var(--accent)' }} onClick={() => setConfirming(r.quote_id)}>Award ▸</button>
+                  {!awarded && !out && confirming !== r.quote_id && declining !== r.quote_id && (
+                    <>
+                      <button className="btn sm" style={{ borderColor: 'var(--accent)', color: 'var(--accent)' }} onClick={() => setConfirming(r.quote_id)}>Award ▸</button>{' '}
+                      <button className="btn sm" title="rule this bid out" onClick={() => setDeclining(r.quote_id)}>Rule out</button>
+                    </>
                   )}
                   {!awarded && confirming === r.quote_id && (
                     <>
@@ -262,9 +307,16 @@ function PackagePanel({ packageId, project }: { packageId: string; project: stri
                       <button className="btn sm" onClick={() => setConfirming(null)}>Cancel</button>
                     </>
                   )}
+                  {declining === r.quote_id && (
+                    <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
+                      <input className="si" style={{ width: 190 }} autoFocus placeholder="reason it's ruled out…" value={declineReason} onChange={(e) => setDeclineReason(e.target.value)} />
+                      <button className="btn sm danger" onClick={() => declineM.mutate(r.quote_id)} disabled={!declineReason || declineM.isPending}>Rule out</button>
+                      <button className="btn sm" onClick={() => { setDeclining(null); setDeclineReason('') }}>Cancel</button>
+                    </div>
+                  )}
                 </td>
               </tr>
-            ))}
+            )})}
           </tbody>
         </table>
       )}
@@ -284,8 +336,15 @@ function PackagePanel({ packageId, project }: { packageId: string; project: stri
           .
         </div>
       )}
+      {leveling.some((r) => r.state === 'declined') && (
+        <div style={{ fontSize: 11, color: '#9aa0a6', marginTop: 6 }}>
+          Ruled-out bids stay on the record — a price you rejected is as informative as one you paid, and it
+          still feeds the ROM. They don’t set the benchmark, so a negative “vs lowest” is what compliance costs.
+        </div>
+      )}
       {bidM.isError && <div className="note">Couldn’t add that bid — {String(bidM.error)}</div>}
       {awardM.isError && <div className="note">Couldn’t award — {String(awardM.error)}</div>}
+      {declineM.isError && <div className="note">Couldn’t rule that bid out — {String(declineM.error)}</div>}
     </div>
   )
 }
