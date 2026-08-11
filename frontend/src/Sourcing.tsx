@@ -166,6 +166,7 @@ function PackagePanel({ packageId, project }: { packageId: string; project: stri
   const [confirming, setConfirming] = useState<string | null>(null)
   const [declining, setDeclining] = useState<string | null>(null)
   const [declineReason, setDeclineReason] = useState('')
+  const [tried, setTried] = useState(false)
 
   const refresh = () => {
     qc.invalidateQueries({ queryKey: ['package', packageId] })
@@ -181,9 +182,13 @@ function PackagePanel({ packageId, project }: { packageId: string; project: stri
     onSuccess: () => {
       setVendor(''); setOem(''); setUnit(''); setLead('')
       setServices(''); setFreight(''); setDiscount(''); setOneTime('')
+      setTried(false)
       refresh()
     },
   })
+  // a bid needs a vendor and an equipment price to be a bid; everything else is optional.
+  // The button stays pressable and says what's missing rather than sitting dead.
+  const missing = [!vendor && 'a vendor', unit === '' && 'an equipment $/unit'].filter(Boolean)
   const declineM = useMutation({
     mutationFn: (quoteId: string) =>
       apiPost(`/packages/${packageId}/quotes/${quoteId}/decline`, { reason: declineReason }),
@@ -238,10 +243,17 @@ function PackagePanel({ packageId, project }: { packageId: string; project: stri
             <input className="si" style={{ width: 104 }} type="number" placeholder="freight $/unit" value={freight} onChange={(e) => setFreight(e.target.value === '' ? '' : Number(e.target.value))} />
             <input className="si" style={{ width: 110 }} type="number" placeholder="discount $/unit" value={discount} onChange={(e) => setDiscount(e.target.value === '' ? '' : Number(e.target.value))} />
             <input className="si" style={{ width: 138 }} type="number" placeholder="one-time $ (whole order)" title="factory witness test · owner's training — per order, amortized over the lot" value={oneTime} onChange={(e) => setOneTime(e.target.value === '' ? '' : Number(e.target.value))} />
-            <button className="btn sm" style={{ background: 'var(--ink)', color: '#fff', borderColor: 'var(--ink)' }} onClick={() => bidM.mutate()} disabled={!vendor || unit === '' || bidM.isPending}>Add bid</button>
+            <button className="btn sm" style={{ background: 'var(--ink)', color: '#fff', borderColor: 'var(--ink)' }} onClick={() => { setTried(true); if (missing.length === 0) bidM.mutate() }} disabled={bidM.isPending}>{bidM.isPending ? 'Adding…' : 'Add bid'}</button>
           </div>
+          {tried && missing.length > 0 && (
+            <div style={{ fontSize: 12, color: 'var(--red)', marginTop: 6 }}>
+              Needs {missing.join(' and ')}. Everything else is optional — leave a layer blank if the bid doesn’t carry it.
+            </div>
+          )}
           <div style={{ fontSize: 11, color: '#9aa0a6', marginTop: 4 }}>
-            One-time cost is per order, so it amortizes over the {pkg.total_qty} units — split this lot and you pay it twice.
+            <strong>One-time $</strong> is a cost charged once for the whole order — factory witness test,
+            owner’s training — so it’s spread across the {pkg.total_qty} units instead of added to each one.
+            Every other box is per unit.
           </div>
         </div>
       )}
