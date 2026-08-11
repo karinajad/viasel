@@ -70,3 +70,11 @@ td{padding:7px 6px;border-top:1px solid var(--soft)}
 .band .nums{display:flex;justify-content:space-between;font-variant-numeric:tabular-nums;font-size:15px}
 .band .mid{font-weight:700;font-size:21px}
 .track{height:10px;border-radius:6px;background:linear-gradient(90deg,#e7efe9,#bcd8c6,#e7efe9);border:1px solid var(--line);margin:6px 0}
+
+/* printing an exhibit: only the exhibit, none of the app around it */
+@media print {
+  body * { visibility: hidden; }
+  .printable, .printable * { visibility: visible; }
+  .printable { position: absolute; left: 0; top: 0; width: 100%; }
+  .no-print { display: none !important; }
+}

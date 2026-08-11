@@ -7,8 +7,7 @@ export interface Agreement {
   agreement_type: string
   buyer_entity: string | null
   state: string
-  issued_date: string | null
-  execution_date: string | null
+  released_date: string | null
   created_at: string
   line_count: number
   total_qty: number
@@ -49,10 +48,97 @@ export interface LegendEntry {
   description: string | null
 }
 
+export type ExhibitKind =
+  | 'delivery_schedule' | 'spare_parts' | 'bill_of_materials'
+  | 'shipping_capacity' | 'required_documents'
+
+export const EXHIBIT_KINDS: ExhibitKind[] = [
+  'delivery_schedule', 'spare_parts', 'bill_of_materials',
+  'shipping_capacity', 'required_documents',
+]
+
+export const GATES = [
+  'prior to fabrication release', 'prior to factory witness test', 'prior to shipment',
+  'prior to delivery', 'prior to commissioning', 'prior to final payment',
+]
+
+export interface ExhibitItem {
+  id: string
+  exhibit: string
+  scope_line_id: string | null
+  equipment_type_id: string | null
+  building: string | null
+  area: string | null
+  description: string
+  qty: number | null
+  unit_price: number | null
+  due_date: string | null
+  gate: string | null
+  note: string | null
+}
+
+/** A committed line — the units allocated to this vendor at sourcing. */
+export interface CommittedLine {
+  scope_line_id: string
+  label: string
+  equipment_type_id: string | null
+  design_term: string | null
+  building: string | null
+  area: string | null
+  qty: number
+  unit_price: number
+}
+
+export interface TypeOption {
+  equipment_type_id: string | null
+  label: string
+  unit_count: number
+}
+
+export interface LineCoverage {
+  scope_line_id: string
+  label: string
+  committed_qty: number
+  scheduled_qty: number
+  remaining_qty: number
+}
+
 export interface ExhibitSet {
   agreement: Agreement
   cover_sheet: CoverSheet
   equipment_list: EquipmentRow[]
   legend: LegendEntry[]
-  not_yet_derivable: string[]
+  items: Record<string, ExhibitItem[]>
+  delivery_coverage: LineCoverage[]
+  committed_lines: CommittedLine[]
+  equipment_types: TypeOption[]
+  roj_dates: string[]
+}
+
+export interface ExecutedAgreement {
+  id: string
+  source_system: string
+  external_document_ref: string | null
+  execution_date: string | null
+  stated_po_number: string | null
+  stated_buyer_entity: string | null
+  stated_vendor_name: string | null
+  stated_total_qty: number | null
+  stated_contract_value: number | null
+  reconciliation_status: string
+  retrieved_at: string
+  retrieved_by: string | null
+}
+
+export interface FieldDivergence {
+  id: string
+  field_name: string
+  generated_value: string | null
+  executed_value: string | null
+  resolution_note: string | null
+}
+
+export interface Reconciliation {
+  executed: ExecutedAgreement
+  divergences: FieldDivergence[]
 }
