@@ -268,9 +268,10 @@ class Project(Base):
     name: Mapped[str] = mapped_column(String, unique=True, nullable=False)
     legend_frozen: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"), nullable=False)
 
-    # identity and title — custody follows title, and the holder is per project
+    # identity and where the site is
     site_code: Mapped[str | None] = mapped_column(String)  # e.g. DTW01
-    buyer_entity: Mapped[str | None] = mapped_column(String)  # the SPV that signs
+    # legal name of the company assigned to this project — the name that appears on the PO
+    buyer_entity: Mapped[str | None] = mapped_column(String)
     address: Mapped[str | None] = mapped_column(String)
     city: Mapped[str | None] = mapped_column(String)
     state: Mapped[str | None] = mapped_column(String)  # drives tax jurisdiction

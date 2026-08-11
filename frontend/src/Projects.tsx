@@ -152,7 +152,7 @@ function Detail({ project }: { project: Project }) {
       <Sub>Identity &amp; title</Sub>
       <G>
         {txt('site_code', 'Site code', 'e.g. DTW01')}
-        {txt('buyer_entity', 'Buyer legal entity', 'the SPV that signs — custody follows title', 3)}
+        {txt('buyer_entity', 'Buyer legal entity', 'legal name of the company assigned to this project', 3)}
       </G>
       <G>
         {txt('address', 'Address', undefined, 2)}
@@ -171,6 +171,7 @@ function Detail({ project }: { project: Project }) {
         No energization date here — that's a schedule output, and the schedule owns it. What the record
         needs is each unit's <strong>required-by</strong> date, captured on the Design register.
       </div>
+      <BuildingCapacity projectId={project.id} projectMw={value('mw_it') as number | null} />
       {cap && (
         <div className="note" style={{ marginTop: 4 }}>
           {cap.buildings_total === 0
@@ -192,6 +193,64 @@ function Detail({ project }: { project: Project }) {
         {num('ambient_max_f', 'Ambient design max (°F)', 'kW/ton is quoted at this temperature')}
         {num('sound_limit_dba', 'Sound limit (dBA)', 'drove $35k–$60k enclosure adders')}
       </G>
+      {saveM.isError && <div className="note">{String(saveM.error).replace(/^Error:\s*/, '')}</div>}
+    </div>
+  )
+}
+
+/**
+ * MW per building, assigned where the total and the reconciliation are — so the gap and the
+ * fix are in the same place. Buildings only: capacity rolls up at the building, and areas
+ * inherit it rather than splitting it again.
+ */
+function BuildingCapacity({ projectId, projectMw }: { projectId: string; projectMw: number | null }) {
+  const qc = useQueryClient()
+  const q = useQuery({ queryKey: ['locations', projectId], queryFn: () => apiGet<ProjectLocation[]>(`/projects/${projectId}/locations`) })
+  const buildings = (q.data ?? []).filter((l) => l.kind === 'building').sort(byCode)
+  const [edits, setEdits] = useState<Record<string, number | ''>>({})
+  const saveM = useMutation({
+    mutationFn: ({ id, mw }: { id: string; mw: number | null }) =>
+      apiPatch(`/projects/${projectId}/locations/${id}`, { mw_it: mw }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['locations', projectId] })
+      qc.invalidateQueries({ queryKey: ['capacity', projectId] })
+    },
+  })
+  const shown = (b: ProjectLocation) => (b.id in edits ? edits[b.id] : (b.mw_it ?? ''))
+  const commit = (b: ProjectLocation) => {
+    const v = shown(b)
+    const next = v === '' ? null : Number(v)
+    if (next !== (b.mw_it ?? null)) saveM.mutate({ id: b.id, mw: next })
+  }
+  const assigned = buildings.reduce((n, b) => n + Number(shown(b) || 0), 0)
+  const remainder = projectMw == null ? null : Math.round((projectMw - assigned) * 1000) / 1000
+
+  if (buildings.length === 0) return null
+  return (
+    <div style={{ marginTop: 4, marginBottom: 6 }}>
+      <label style={{ margin: '0 0 5px' }}>MW IT per building</label>
+      <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+        {buildings.map((b) => (
+          <div key={b.id} style={{ width: 108 }}>
+            <div style={{ fontSize: 11, color: 'var(--mut)', marginBottom: 2 }}>
+              <strong style={{ color: 'var(--ink)' }}>{b.code}</strong>{b.label ? ` · ${b.label}` : ''}
+            </div>
+            <input className="si" style={{ width: '100%' }} type="number" placeholder="MW"
+              value={shown(b)}
+              onChange={(e) => setEdits((d) => ({ ...d, [b.id]: e.target.value === '' ? '' : Number(e.target.value) }))}
+              onBlur={() => commit(b)} />
+          </div>
+        ))}
+        <div style={{ fontSize: 12, color: 'var(--mut)', paddingBottom: 7 }}>
+          assigned <strong style={{ color: 'var(--ink)' }}>{assigned}</strong>
+          {remainder != null && remainder !== 0 && (
+            <span style={{ color: remainder > 0 ? 'var(--amber)' : 'var(--red)' }}>
+              {' '}· {remainder > 0 ? `${remainder} MW unassigned` : `${-remainder} MW over`}
+            </span>
+          )}
+          {remainder === 0 && <span style={{ color: 'var(--accent)' }}> · balanced</span>}
+        </div>
+      </div>
       {saveM.isError && <div className="note">{String(saveM.error).replace(/^Error:\s*/, '')}</div>}
     </div>
   )
@@ -271,19 +330,17 @@ function LocationEditor({ projectId, frozen }: { projectId: string; frozen: bool
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editCode, setEditCode] = useState('')
   const [editLabel, setEditLabel] = useState('')
-  const [editMw, setEditMw] = useState<number | ''>('')
   const addM = useMutation({ mutationFn: () => apiPost(`/projects/${projectId}/locations`, { code, kind, label: labelText || null }), onSuccess: () => { setCode(''); setLabelText(''); invalidate() } })
-  const updateM = useMutation({ mutationFn: (id: string) => apiPatch(`/projects/${projectId}/locations/${id}`, { code: editCode, label: editLabel || null, mw_it: editMw === '' ? null : Number(editMw) }), onSuccess: () => { setEditingId(null); invalidate() } })
+  const updateM = useMutation({ mutationFn: (id: string) => apiPatch(`/projects/${projectId}/locations/${id}`, { code: editCode, label: editLabel || null }), onSuccess: () => { setEditingId(null); invalidate() } })
   const deleteM = useMutation({ mutationFn: (id: string) => apiDelete(`/projects/${projectId}/locations/${id}`), onSuccess: invalidate })
-  const startEdit = (l: ProjectLocation) => { setEditingId(l.id); setEditCode(l.code); setEditLabel(l.label ?? ''); setEditMw(l.mw_it ?? '') }
+  const startEdit = (l: ProjectLocation) => { setEditingId(l.id); setEditCode(l.code); setEditLabel(l.label ?? '') }
 
   const { buildings, areas, parentOf, orphans } = nest(locs)
 
   const row = (l: ProjectLocation, indent: number) => editingId === l.id ? (
     <div style={{ display: 'flex', gap: 6, marginLeft: indent, alignItems: 'center', padding: '2px 0' }}>
       <input className="si" style={{ width: 90 }} value={editCode} onChange={(e) => setEditCode(e.target.value)} />
-      <input className="si" style={{ width: 120 }} value={editLabel} onChange={(e) => setEditLabel(e.target.value)} placeholder="label" />
-      <input className="si" style={{ width: 76 }} type="number" value={editMw} onChange={(e) => setEditMw(e.target.value === '' ? '' : Number(e.target.value))} placeholder="MW IT" title="this building's share of the IT load" />
+      <input className="si" style={{ width: 130 }} value={editLabel} onChange={(e) => setEditLabel(e.target.value)} placeholder="label" />
       <button className="btn sm" onClick={() => updateM.mutate(l.id)} disabled={updateM.isPending}>Save</button>
       <button className="btn sm" onClick={() => setEditingId(null)}>Cancel</button>
     </div>
