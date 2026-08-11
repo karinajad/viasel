@@ -41,8 +41,6 @@ export default function RomGrid({ project, projectId }: { project: string; proje
   const locOpts = useMemo(() => locationOptions(locQ.data ?? []), [locQ.data])
 
   const [rows, setRows] = useState<Row[]>(() => [blank(), blank(), blank()])
-  const [escalation, setEscalation] = useState(0)
-  const [tariff, setTariff] = useState(0)
   const [result, setResult] = useState<RomPriceBatchResponse | null>(null)
   const [stale, setStale] = useState(false) // the list changed since it was priced
   const [saved, setSaved] = useState(0)
@@ -77,8 +75,6 @@ export default function RomGrid({ project, projectId }: { project: string; proje
           const s = specOf(r)
           return { type_query: r.type, denominator: s.denominator, size: s.size, qty: r.qty }
         }),
-        escalation_pct: escalation / 100,
-        tariff_pct: tariff / 100,
       }),
     onSuccess: (res) => {
       // bands come back in request order — map them onto the rows that were sent
@@ -124,16 +120,7 @@ export default function RomGrid({ project, projectId }: { project: string; proje
 
   return (
     <div className="card">
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', flexWrap: 'wrap', gap: 8 }}>
-        <h4 style={{ margin: 0 }}>Line-item list · {project}</h4>
-        <div style={{ display: 'flex', gap: 10, alignItems: 'center', fontSize: 11, color: 'var(--mut)' }}>
-          <span>escalation</span>
-          <input className="si" style={{ width: 58 }} type="number" value={escalation} onChange={(e) => { setEscalation(Number(e.target.value)); setStale(true) }} />
-          <span>% · tariff</span>
-          <input className="si" style={{ width: 58 }} type="number" value={tariff} onChange={(e) => { setTariff(Number(e.target.value)); setStale(true) }} />
-          <span>%</span>
-        </div>
-      </div>
+      <h4 style={{ margin: 0 }}>Line-item list · {project}</h4>
 
       {locOpts.length === 0 && (
         <div className="note" style={{ marginTop: 0, marginBottom: 10 }}>

@@ -60,8 +60,6 @@ export interface RomBatchLine {
 
 export interface RomPriceBatchRequest {
   lines: RomBatchLine[]
-  tariff_pct?: number
-  escalation_pct?: number
 }
 
 export interface RomRollup {
