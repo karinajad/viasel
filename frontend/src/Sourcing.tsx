@@ -1,7 +1,7 @@
 import { Fragment, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { apiDelete, apiGet, apiPost } from './services/api'
-import { STATE, money, physics, signed, signedPct } from './lib/format'
+import { STATE, count, money, physics, signed, signedPct } from './lib/format'
 import type { CandidatesRead, PackageDetail, PackageRead } from './types/sourcing'
 
 const label = (p: { type_query: string; size: number; denominator: string }) =>
@@ -167,12 +167,14 @@ function PackagePanel({ packageId, project }: { packageId: string; project: stri
   const [declining, setDeclining] = useState<string | null>(null)
   const [declineReason, setDeclineReason] = useState('')
   const [tried, setTried] = useState(false)
+  const [openLayers, setOpenLayers] = useState(false)
 
   const refresh = () => {
     qc.invalidateQueries({ queryKey: ['package', packageId] })
     qc.invalidateQueries({ queryKey: ['packages', project] })
   }
   const num = (v: number | '') => (v === '' ? null : Number(v))
+  const numOrBlank = (s: string): number | '' => (s === '' ? '' : Number(s))
   const bidM = useMutation({
     mutationFn: () => apiPost<PackageDetail>(`/packages/${packageId}/quotes`, {
       vendor, oem: oem || null, unit_price: Number(unit), lead_time_weeks: num(lead),
@@ -189,6 +191,7 @@ function PackagePanel({ packageId, project }: { packageId: string; project: stri
   // a bid needs a vendor and an equipment price to be a bid; everything else is optional.
   // The button stays pressable and says what's missing rather than sitting dead.
   const missing = [!vendor && 'a vendor', unit === '' && 'an equipment $/unit'].filter(Boolean)
+  const layerCount = [services, freight, discount, oneTime, oem].filter((v) => v !== '' && v !== null).length
   const declineM = useMutation({
     mutationFn: (quoteId: string) =>
       apiPost(`/packages/${packageId}/quotes/${quoteId}/decline`, { reason: declineReason }),
@@ -206,10 +209,16 @@ function PackagePanel({ packageId, project }: { packageId: string; project: stri
   if (q.isLoading || !q.data) return <div style={{ padding: 8, color: 'var(--mut)', fontSize: 12.5 }}>Loading…</div>
   const { package: pkg, lines, leveling } = q.data
   const awarded = pkg.state === 'awarded'
+  const oneLiveBid = leveling.filter((r) => r.state !== 'declined').length < 2
+  // preview only — the authoritative figure is effective_unit() in services/packaging.py,
+  // computed server-side and returned on save
+  const n = (v: number | '') => (v === '' ? 0 : Number(v))
+  const previewAllIn =
+    n(unit) + n(services) + n(freight) - n(discount) + (pkg.total_qty ? n(oneTime) / pkg.total_qty : 0)
 
   return (
     <div style={{ padding: '8px 2px' }}>
-      <Sub>Lot contents · {pkg.total_qty} units of {label(pkg)} across {pkg.line_count} lines</Sub>
+      <Sub>Lot contents · {count(pkg.total_qty, 'unit')} of {label(pkg)} across {count(pkg.line_count, 'line')}</Sub>
       <table style={{ marginBottom: 14 }}>
         <thead><tr><th>Building / area</th><th className="num">Qty</th><th className="num">ROM / unit</th><th>Demand state</th><th /></tr></thead>
         <tbody>
@@ -229,31 +238,65 @@ function PackagePanel({ packageId, project }: { packageId: string; project: stri
         </tbody>
       </table>
 
-      <Sub>Bid leveling · every bid per {pkg.denominator}, against the {money(pkg.rom_unit_price)}/unit the record already says</Sub>
+      <Sub>
+        Bid leveling · every bid all-in, per {pkg.denominator}
+        {pkg.rom_unit_price != null
+          ? <>, against the {money(pkg.rom_unit_price)}/unit the record already says</>
+          : <> · no ROM on these lines, so there’s nothing to compare against yet</>}
+      </Sub>
       {!awarded && (
-        <div style={{ marginBottom: 10 }}>
-          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 6 }}>
-            <input className="si" style={{ width: 130 }} placeholder="Vendor" value={vendor} onChange={(e) => setVendor(e.target.value)} />
-            <input className="si" style={{ width: 110 }} placeholder="OEM" value={oem} onChange={(e) => setOem(e.target.value)} />
-            <input className="si" style={{ width: 118 }} type="number" placeholder="equipment $/unit" value={unit} onChange={(e) => setUnit(e.target.value === '' ? '' : Number(e.target.value))} />
-            <input className="si" style={{ width: 96 }} type="number" placeholder="Lead (wk)" value={lead} onChange={(e) => setLead(e.target.value === '' ? '' : Number(e.target.value))} />
+        <div className="bidform">
+          <div className="row">
+            <Field label="Vendor" required width={168}>
+              <input className="si" value={vendor} onChange={(e) => setVendor(e.target.value)} />
+            </Field>
+            <Field label={`Equipment $ / unit`} required width={150}>
+              <input className="si" type="number" value={unit} onChange={(e) => setUnit(numOrBlank(e.target.value))} />
+            </Field>
+            <Field label="Lead time (weeks)" width={124}>
+              <input className="si" type="number" value={lead} onChange={(e) => setLead(numOrBlank(e.target.value))} />
+            </Field>
+            <div style={{ flex: 1 }} />
+            <AllIn allIn={previewAllIn} qty={pkg.total_qty} ready={unit !== ''} />
           </div>
-          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-            <input className="si" style={{ width: 118 }} type="number" placeholder="services $/unit" title="startup · commissioning · IST · warranty, per unit" value={services} onChange={(e) => setServices(e.target.value === '' ? '' : Number(e.target.value))} />
-            <input className="si" style={{ width: 104 }} type="number" placeholder="freight $/unit" value={freight} onChange={(e) => setFreight(e.target.value === '' ? '' : Number(e.target.value))} />
-            <input className="si" style={{ width: 110 }} type="number" placeholder="discount $/unit" value={discount} onChange={(e) => setDiscount(e.target.value === '' ? '' : Number(e.target.value))} />
-            <input className="si" style={{ width: 138 }} type="number" placeholder="one-time $ (whole order)" title="factory witness test · owner's training — per order, amortized over the lot" value={oneTime} onChange={(e) => setOneTime(e.target.value === '' ? '' : Number(e.target.value))} />
-            <button className="btn sm" style={{ background: 'var(--ink)', color: '#fff', borderColor: 'var(--ink)' }} onClick={() => { setTried(true); if (missing.length === 0) bidM.mutate() }} disabled={bidM.isPending}>{bidM.isPending ? 'Adding…' : 'Add bid'}</button>
-          </div>
-          {tried && missing.length > 0 && (
-            <div style={{ fontSize: 12, color: 'var(--red)', marginTop: 6 }}>
-              Needs {missing.join(' and ')}. Everything else is optional — leave a layer blank if the bid doesn’t carry it.
+
+          <button type="button" className="disc" onClick={() => setOpenLayers(!openLayers)}>
+            {openLayers ? '▾' : '▸'} Other cost layers
+            {!openLayers && layerCount > 0 && <span className="badge">{layerCount}</span>}
+            {!openLayers && layerCount === 0 && <span className="hint">optional — services, freight, discount, one-time, OEM</span>}
+          </button>
+
+          {openLayers && (
+            <div className="row layers">
+              <Field label="Services $ / unit" hint="startup · commissioning · IST · warranty" width={140}>
+                <input className="si" type="number" value={services} onChange={(e) => setServices(numOrBlank(e.target.value))} />
+              </Field>
+              <Field label="Freight $ / unit" width={124}>
+                <input className="si" type="number" value={freight} onChange={(e) => setFreight(numOrBlank(e.target.value))} />
+              </Field>
+              <Field label="Discount $ / unit" hint="subtracted" width={132}>
+                <input className="si" type="number" value={discount} onChange={(e) => setDiscount(numOrBlank(e.target.value))} />
+              </Field>
+              <Field
+                label="One-time $"
+                hint={pkg.total_qty === 1 ? 'whole order — this lot is one unit' : `whole order — spread over ${pkg.total_qty}`}
+                width={140}
+              >
+                <input className="si" type="number" value={oneTime} onChange={(e) => setOneTime(numOrBlank(e.target.value))} />
+              </Field>
+              <Field label="OEM" hint="if not the vendor" width={150}>
+                <input className="si" value={oem} onChange={(e) => setOem(e.target.value)} />
+              </Field>
             </div>
           )}
-          <div style={{ fontSize: 11, color: '#9aa0a6', marginTop: 4 }}>
-            <strong>One-time $</strong> is a cost charged once for the whole order — factory witness test,
-            owner’s training — so it’s spread across the {pkg.total_qty} units instead of added to each one.
-            Every other box is per unit.
+
+          <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginTop: 10 }}>
+            <button className="btn sm" style={{ background: 'var(--ink)', color: '#fff', borderColor: 'var(--ink)' }} onClick={() => { setTried(true); if (missing.length === 0) bidM.mutate() }} disabled={bidM.isPending}>
+              {bidM.isPending ? 'Adding…' : 'Add bid'}
+            </button>
+            {tried && missing.length > 0 && (
+              <span style={{ fontSize: 12, color: 'var(--red)' }}>Needs {missing.join(' and ')}.</span>
+            )}
           </div>
         </div>
       )}
@@ -268,7 +311,7 @@ function PackagePanel({ packageId, project }: { packageId: string; project: stri
               <th className="num">per {pkg.denominator}</th>
               <th className="num">Lead</th>
               <th className="num">Extended ({pkg.total_qty})</th>
-              <th className="num">vs lowest</th>
+              <th className="num">{oneLiveBid ? '' : 'vs lowest'}</th>
               <th className="num">vs ROM</th>
               <th />
             </tr>
@@ -281,7 +324,7 @@ function PackagePanel({ packageId, project }: { packageId: string; project: stri
                 <td>
                   <strong style={{ textDecoration: out ? 'line-through' : 'none' }}>{r.vendor}</strong>
                   {r.oem && <span style={{ color: 'var(--mut)' }}> · {r.oem}</span>}
-                  {r.is_low && !awarded && <span style={{ color: 'var(--accent)', fontSize: 11 }}> · lowest awardable</span>}
+                  {r.is_low && !awarded && !oneLiveBid && <span style={{ color: 'var(--accent)', fontSize: 11 }}> · lowest awardable</span>}
                   {r.is_selected && <span style={{ color: 'var(--accent)', fontSize: 11, fontWeight: 600 }}> · awarded</span>}
                   <div style={{ fontSize: 10.5, color: '#9aa0a6', fontVariantNumeric: 'tabular-nums' }}>
                     equip {money(r.layers.equipment)}
@@ -298,8 +341,8 @@ function PackagePanel({ packageId, project }: { packageId: string; project: stri
                 <td className="num">{money(r.normalized)}</td>
                 <td className="num">{r.lead_time_weeks ?? '—'}</td>
                 <td className="num">{money(r.extended)}</td>
-                <td className="num" style={{ color: r.delta_vs_low === 0 ? 'var(--accent)' : r.delta_vs_low < 0 ? 'var(--mut)' : 'var(--mut)' }}>
-                  {r.delta_vs_low === 0 ? '—' : `${signed(r.delta_vs_low)}${signedPct(r.delta_vs_low_pct)}`}
+                <td className="num" style={{ color: 'var(--mut)' }}>
+                  {oneLiveBid || r.delta_vs_low === 0 ? '—' : `${signed(r.delta_vs_low)}${signedPct(r.delta_vs_low_pct)}`}
                 </td>
                 <td className="num" style={{ color: r.delta_vs_rom == null ? 'var(--mut)' : r.delta_vs_rom > 0 ? 'var(--red)' : 'var(--accent)' }}>
                   {r.delta_vs_rom == null ? '—' : `${signed(r.delta_vs_rom)}${signedPct(r.delta_vs_rom_pct)}`}
@@ -365,6 +408,38 @@ function Sub({ children }: { children: React.ReactNode }) {
   return (
     <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '.05em', color: 'var(--mut)', marginBottom: 6 }}>
       {children}
+    </div>
+  )
+}
+
+/** A labelled input. Labels sit above the box so nothing truncates its own name. */
+function Field({ label, children, width, required, hint }: {
+  label: string; children: React.ReactNode; width: number; required?: boolean; hint?: string
+}) {
+  return (
+    <div style={{ width }}>
+      <label style={{ margin: '0 0 3px' }}>
+        {label}{required && <span style={{ color: 'var(--red)' }}> *</span>}
+      </label>
+      {children}
+      {hint && <div style={{ fontSize: 10, color: '#9aa0a6', marginTop: 2, lineHeight: 1.3 }}>{hint}</div>}
+    </div>
+  )
+}
+
+/** The number the bid is actually leveled on, while you type it. */
+function AllIn({ allIn, qty, ready }: { allIn: number; qty: number; ready: boolean }) {
+  return (
+    <div style={{ textAlign: 'right', minWidth: 170 }}>
+      <div style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '.05em', color: 'var(--mut)' }}>
+        all-in / unit
+      </div>
+      <div style={{ fontSize: 19, fontWeight: 700, fontVariantNumeric: 'tabular-nums', color: ready ? 'var(--ink)' : 'var(--line)' }}>
+        {ready ? money(allIn) : '—'}
+      </div>
+      <div style={{ fontSize: 10.5, color: 'var(--mut)' }}>
+        {ready ? <>{money(allIn * qty)} for {count(qty, 'unit')}</> : `this is what bids are compared on`}
+      </div>
     </div>
   )
 }

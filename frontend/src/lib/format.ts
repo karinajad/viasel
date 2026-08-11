@@ -6,6 +6,10 @@ export const money = (n: number | null | undefined): string =>
 export const TIER: Record<string, string> = { high: '#2f6f4f', medium: '#b7791f', low: '#b23a3a', none: '#6b7280' }
 export const STATE: Record<string, string> = { drafted: '#6b7280', frozen: '#2f6f4f', thawed: '#b23a3a', matching: '#b7791f', matched: '#2f6f4f', satisfied: '#2f6f4f', cancelled: '#9aa0a6' }
 
+/** "1 unit" / "84 units" — never "1 units". */
+export const count = (n: number, one: string, many = `${one}s`): string =>
+  `${n.toLocaleString()} ${n === 1 ? one : many}`
+
 /** What a thing is, in one phrase — physics only: type, size, natural unit. */
 export const physics = (type: string, size: number | string, denominator: string): string =>
   `${type} ${size}${denominator.replace('$/', ' ')}`.trim()

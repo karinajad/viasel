@@ -49,6 +49,17 @@ label{display:block;font-size:12px;color:var(--mut);margin:10px 0 4px}
 .seg button:hover{background:var(--soft)}
 .seg button.on{background:var(--ink);color:#fff}
 
+/* bid entry — required fields up front, cost layers behind a disclosure */
+.bidform{background:#fff;border:1px solid var(--line);border-radius:10px;padding:12px;margin-bottom:12px}
+.bidform .row{display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end}
+.bidform .row.layers{margin-top:10px;padding-top:10px;border-top:1px dashed var(--line)}
+.bidform .si{width:100%}
+.disc{margin-top:10px;border:none;background:none;padding:0;font-size:12px;color:var(--mut);
+  cursor:pointer;display:flex;align-items:center;gap:7px;font-family:inherit}
+.disc:hover{color:var(--ink)}
+.disc .badge{background:var(--soft);border-radius:999px;padding:1px 7px;font-size:11px;color:var(--ink)}
+.disc .hint{color:#9aa0a6}
+
 table{width:100%;border-collapse:collapse;font-size:13px}
 th{color:var(--mut);font-weight:600;font-size:11px;text-transform:uppercase;letter-spacing:.04em;text-align:left;padding:6px}
 td{padding:7px 6px;border-top:1px solid var(--soft)}
