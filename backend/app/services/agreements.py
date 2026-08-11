@@ -9,6 +9,7 @@ executed version can later be reconciled field-by-field against what was generat
 import uuid
 from collections.abc import Sequence
 from datetime import date
+from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -409,7 +410,12 @@ def add_exhibit_item(
     qty: int | None = None,
     unit_price: float | None = None,
     due_date: object = None,
+    vendor_delivery_date: object = None,
+    designation: str | None = None,
     gate: str | None = None,
+    is_included: bool | None = None,
+    is_required: bool | None = None,
+    lead_time_weeks: int | None = None,
     note: str | None = None,
 ) -> ExhibitItem:
     """Enter a line of an exhibit, optionally against the committed line it covers."""
@@ -483,9 +489,44 @@ def add_exhibit_item(
         agreement_id=ag.id, exhibit=exhibit, description=description,
         scope_line_id=scope_line_id, equipment_type_id=equipment_type_id,
         building=building, area=area, qty=qty, unit_price=unit_price,
-        due_date=due_date, gate=gate, note=note,
+        due_date=due_date, vendor_delivery_date=vendor_delivery_date,
+        designation=designation, gate=gate, is_included=is_included,
+        is_required=is_required, lead_time_weeks=lead_time_weeks, note=note,
     )
     session.add(item)
+    session.flush()
+    return item
+
+
+def update_exhibit_item(
+    session: Session, ag: Agreement, item_id: uuid.UUID, patch: dict[str, Any]
+) -> ExhibitItem:
+    """Change a row in place. The delivery cap still holds when a quantity moves."""
+    item = session.get(ExhibitItem, item_id)
+    if item is None or item.agreement_id != ag.id or not item.active:
+        raise AgreementError("that exhibit line is not on this agreement")
+
+    if item.exhibit == DELIVERY and "qty" in patch and patch["qty"] is not None:
+        lines = {sl.id: sl for sl in agreement_lines(session, ag)}
+        peers = [
+            i for i in exhibit_items(session, ag)
+            if i.exhibit == DELIVERY and i.id != item.id
+            and (item.scope_line_id is None or i.scope_line_id == item.scope_line_id)
+        ]
+        already = sum(i.qty or 0 for i in peers)
+        cap = (
+            lines[item.scope_line_id].qty if item.scope_line_id and item.scope_line_id in lines
+            else sum(sl.qty for sl in lines.values())
+        )
+        wanted = int(patch["qty"])
+        if already + wanted > cap:
+            raise AgreementError(
+                f"that would schedule {already + wanted} of {cap} committed units — "
+                f"{cap - already} available on this line"
+            )
+
+    for field, value in patch.items():
+        setattr(item, field, value)
     session.flush()
     return item
 

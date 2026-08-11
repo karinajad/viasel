@@ -528,10 +528,19 @@ class ExhibitItem(Base):
     description: Mapped[str] = mapped_column(String, nullable=False)
     qty: Mapped[int | None] = mapped_column(Integer)
     unit_price: Mapped[float | None] = mapped_column(Numeric)
+    # the ROJ date on a delivery row, the need-by on a document, the period start on capacity
     due_date: Mapped[date | None] = mapped_column(Date)
-    # for required documents: which lifecycle gate the document is owed at. "prior to final
-    # payment" is the withholding lever, so the gate is the part that has teeth.
+    # what the vendor commits to, next to what the site needs — the two dates their delivery
+    # schedule tab carries side by side
+    vendor_delivery_date: Mapped[date | None] = mapped_column(Date)
+    designation: Mapped[str | None] = mapped_column(String)  # e.g. "OFCI to Site"
+    # the trigger a document is owed at. "Prior to Final Payment" is the withholding lever,
+    # so this is the column with teeth.
     gate: Mapped[str | None] = mapped_column(String)
+    # a BOM component can be in or out of the price; a document can be required or not
+    is_included: Mapped[bool | None] = mapped_column(Boolean)
+    is_required: Mapped[bool | None] = mapped_column(Boolean)
+    lead_time_weeks: Mapped[int | None] = mapped_column(Integer)  # spares carry their own
     note: Mapped[str | None] = mapped_column(String)
     active: Mapped[bool] = mapped_column(
         Boolean, default=True, server_default=text("true"), nullable=False

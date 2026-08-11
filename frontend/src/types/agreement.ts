@@ -57,9 +57,10 @@ export const EXHIBIT_KINDS: ExhibitKind[] = [
   'shipping_capacity', 'required_documents',
 ]
 
+/** Schedule D's own standard trigger list, verbatim. */
 export const GATES = [
-  'prior to fabrication release', 'prior to factory witness test', 'prior to shipment',
-  'prior to delivery', 'prior to commissioning', 'prior to final payment',
+  'Prior to Manufacturing Release', 'Prior to Shipment', 'With Shipment', 'Upon Delivery',
+  'Prior to Commissioning', 'Upon Commissioning', 'Prior to Final Payment', 'As Requested', 'N/A',
 ]
 
 export interface ExhibitItem {
@@ -72,8 +73,14 @@ export interface ExhibitItem {
   description: string
   qty: number | null
   unit_price: number | null
+  /** ROJ date · need-by date · period start, depending on the tab */
   due_date: string | null
+  vendor_delivery_date: string | null
+  designation: string | null
   gate: string | null
+  is_included: boolean | null
+  is_required: boolean | null
+  lead_time_weeks: number | null
   note: string | null
 }
 

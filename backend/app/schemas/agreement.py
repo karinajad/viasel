@@ -126,10 +126,18 @@ EXHIBITS = (
     "delivery_schedule", "spare_parts", "bill_of_materials",
     "shipping_capacity", "required_documents",
 )
-# their Schedule D lever: a document owed "prior to final payment" is retainage with teeth
+# Schedule D's own standard trigger list, verbatim. "Prior to Final Payment" is the
+# retainage lever, which is why the trigger is the column that matters.
 GATES = (
-    "prior to fabrication release", "prior to factory witness test", "prior to shipment",
-    "prior to delivery", "prior to commissioning", "prior to final payment",
+    "Prior to Manufacturing Release",
+    "Prior to Shipment",
+    "With Shipment",
+    "Upon Delivery",
+    "Prior to Commissioning",
+    "Upon Commissioning",
+    "Prior to Final Payment",
+    "As Requested",
+    "N/A",
 )
 
 
@@ -142,8 +150,29 @@ class ExhibitItemCreate(BaseModel):
     area: str | None = None
     qty: int | None = None
     unit_price: float | None = None
-    due_date: date | None = None
+    due_date: date | None = None  # ROJ date · need-by date · period start
+    vendor_delivery_date: date | None = None
+    designation: str | None = None
     gate: str | None = None
+    is_included: bool | None = None
+    is_required: bool | None = None
+    lead_time_weeks: int | None = None
+    note: str | None = None
+
+
+class ExhibitItemPatch(BaseModel):
+    """Change a row already on an exhibit. Only what's sent is touched."""
+
+    description: str | None = None
+    qty: int | None = None
+    unit_price: float | None = None
+    due_date: date | None = None
+    vendor_delivery_date: date | None = None
+    designation: str | None = None
+    gate: str | None = None
+    is_included: bool | None = None
+    is_required: bool | None = None
+    lead_time_weeks: int | None = None
     note: str | None = None
 
 
@@ -159,7 +188,12 @@ class ExhibitItemRead(BaseModel):
     qty: int | None
     unit_price: float | None
     due_date: date | None
+    vendor_delivery_date: date | None
+    designation: str | None
     gate: str | None
+    is_included: bool | None
+    is_required: bool | None
+    lead_time_weeks: int | None
     note: str | None
 
 

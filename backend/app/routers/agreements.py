@@ -13,6 +13,7 @@ from app.schemas.agreement import (
     ExecutedAgreementCreate,
     ExecutedAgreementRead,
     ExhibitItemCreate,
+    ExhibitItemPatch,
     ExhibitItemRead,
     ExhibitSet,
     ReconciliationRead,
@@ -29,6 +30,7 @@ from app.services.agreements import (
     register_executed,
     remove_exhibit_item,
     transition,
+    update_exhibit_item,
 )
 
 router = APIRouter(prefix="/agreements", tags=["agreements"], dependencies=[Depends(require_token)])
@@ -137,3 +139,18 @@ def delete_exhibit_item(
     except AgreementError as e:
         raise _conflict(e) from e
     session.commit()
+
+
+@router.patch("/{ag_id}/exhibit-items/{item_id}", response_model=ExhibitItemRead)
+def patch_exhibit_item(
+    ag_id: uuid.UUID, item_id: uuid.UUID, body: ExhibitItemPatch,
+    session: Session = Depends(get_session),
+) -> ExhibitItemRead:
+    ag = _agreement(session, ag_id)
+    try:
+        item = update_exhibit_item(session, ag, item_id, body.model_dump(exclude_unset=True))
+    except AgreementError as e:
+        raise _conflict(e) from e
+    session.commit()
+    session.refresh(item)
+    return ExhibitItemRead.model_validate(item)
