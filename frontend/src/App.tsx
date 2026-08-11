@@ -237,6 +237,8 @@ function QuickPrice({ project, projectId }: { project: string; projectId?: strin
   const [sub, setSub] = useState('')
   const [qty, setQty] = useState(12)
   const [locId, setLocId] = useState('')
+  const [escalation, setEscalation] = useState(0)
+  const [tariff, setTariff] = useState(0)
   const subs = subTypesFor(types, type)
   const { row, subType: effSub, size, denominator: denom } = resolveSpec(types, type, sub)
 
@@ -281,11 +283,25 @@ function QuickPrice({ project, projectId }: { project: string; projectId?: strin
           <option value="">{locOpts.length === 0 ? '— no codes for this project yet —' : '— unassigned —'}</option>
           {locOpts.map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}
         </select>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+          <div>
+            <label>Escalation %</label>
+            <input className="fld" type="number" value={escalation} onChange={(e) => setEscalation(Number(e.target.value))} />
+          </div>
+          <div>
+            <label>Tariff %</label>
+            <input className="fld" type="number" value={tariff} onChange={(e) => setTariff(Number(e.target.value))} />
+          </div>
+        </div>
+        <div style={{ fontSize: 11, color: '#9aa0a6', marginTop: 4 }}>
+          Project-level assumptions — escalation carries history to the required-by date, tariff covers
+          country-of-origin exposure. Both apply on top of the executed comparables.
+        </div>
         <div style={{ marginTop: 12, fontSize: 12, color: 'var(--mut)', display: 'flex', gap: 14 }}>
           <span>size <strong className="chip">{size}</strong></span><span>denominator <strong className="chip">{denom}</strong></span>
         </div>
         <div style={{ fontSize: 11, color: '#9aa0a6', marginTop: 4 }}>size &amp; denominator come from the equipment — not typed</div>
-        <button className="btn pri" style={{ marginTop: 14, width: '100%' }} onClick={() => priceM.mutate({ type_query: type, denominator: denom, size, qty: Number(qty) })} disabled={priceM.isPending}>{priceM.isPending ? 'Pricing…' : 'Price it'}</button>
+        <button className="btn pri" style={{ marginTop: 14, width: '100%' }} onClick={() => priceM.mutate({ type_query: type, denominator: denom, size, qty: Number(qty), escalation_pct: escalation / 100, tariff_pct: tariff / 100 })} disabled={priceM.isPending}>{priceM.isPending ? 'Pricing…' : 'Price it'}</button>
       </div>
 
       <div className="card">
@@ -298,6 +314,14 @@ function QuickPrice({ project, projectId }: { project: string; projectId?: strin
             <div className="track" />
             <div style={{ fontSize: 12, color: 'var(--mut)' }}>per unit ({band.denominator}) · extended <strong>{money(band.extended_mid)}</strong> (×{band.qty})</div>
             <div style={{ marginTop: 10, fontSize: 13 }}>Confidence: <strong style={{ color: TIER[band.confidence_tier] }}>{band.confidence_tier}</strong> · {band.comparables_count} comparables</div>
+            {(!!band.layers.escalation_pct || !!band.layers.tariff_pct) && (
+              <div style={{ fontSize: 11.5, color: 'var(--mut)', marginTop: 4 }}>
+                includes
+                {!!band.layers.escalation_pct && <> +{(band.layers.escalation_pct * 100).toFixed(1)}% escalation</>}
+                {!!band.layers.escalation_pct && !!band.layers.tariff_pct && ' ·'}
+                {!!band.layers.tariff_pct && <> +{(band.layers.tariff_pct * 100).toFixed(1)}% tariff</>}
+              </div>
+            )}
             {band.note && <div className="note">{band.note}</div>}
             <button className="btn" style={{ marginTop: 12, width: '100%', borderColor: 'var(--accent)', color: 'var(--accent)' }} onClick={() => saveM.mutate()} disabled={saveM.isPending || band.unit_mid == null}>{saveM.isPending ? 'Saving…' : 'Save as demand line ▸'}</button>
           </div>

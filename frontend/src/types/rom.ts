@@ -46,6 +46,9 @@ export interface RomPriceRequest {
   denominator: string
   size: number
   qty: number
+  /** project-level assumptions, as fractions (0.05 = 5%) */
+  tariff_pct?: number
+  escalation_pct?: number
 }
 
 export interface RomBatchLine {
