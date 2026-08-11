@@ -14,11 +14,20 @@ from app.schemas.demand import (
     EquipmentTypeRead,
     FreezeEventRead,
     FreezeRequest,
+    FreezeScopePreview,
     ThawEventRead,
     ThawLineRequest,
     ThawRequest,
 )
-from app.services.freeze import DemandNotFrozen, InvalidTransition, freeze, thaw, thaw_line
+from app.services.freeze import (
+    BadScope,
+    DemandNotFrozen,
+    InvalidTransition,
+    freeze,
+    scoped_drafted_lines,
+    thaw,
+    thaw_line,
+)
 
 router = APIRouter(tags=["demand"], dependencies=[Depends(require_token)])
 
@@ -66,10 +75,42 @@ def list_demand_lines(
     return list(session.scalars(stmt.order_by(DemandLine.created_at)))
 
 
+@router.get("/freeze/preview", response_model=FreezeScopePreview)
+def freeze_preview(
+    project: str,
+    scope: str = "project",
+    scope_ref: str | None = None,
+    session: Session = Depends(get_session),
+) -> FreezeScopePreview:
+    """What freezing this scope would cover — see it before you lock it."""
+    try:
+        lines = scoped_drafted_lines(session, project, scope, scope_ref)
+    except BadScope as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    priced = [dl for dl in lines if dl.rom_unit_price is not None]
+    return FreezeScopePreview(
+        scope=scope,
+        scope_ref=scope_ref,
+        line_count=len(lines),
+        total_qty=sum(dl.qty for dl in lines),
+        rom_extended=(
+            round(sum(float(dl.rom_unit_price or 0) * dl.qty for dl in priced), 2) if priced else None
+        ),
+        demand_line_ids=[dl.id for dl in lines],
+    )
+
+
 @router.post("/freeze", response_model=FreezeEventRead)
 def freeze_lines(body: FreezeRequest, session: Session = Depends(get_session)) -> object:
+    """Freeze everything drafted in the scope. The scope decides, not a hand-picked list."""
     try:
-        event = freeze(session, body.line_ids, body.project_id, body.scope, body.actor)
+        lines = scoped_drafted_lines(session, body.project_id, body.scope, body.scope_ref)
+        event = freeze(
+            session, [dl.id for dl in lines], body.project_id, body.scope, body.actor,
+            scope_ref=body.scope_ref,
+        )
+    except BadScope as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
     except InvalidTransition as e:
         raise HTTPException(status_code=409, detail=str(e)) from e
     session.commit()

@@ -3,10 +3,10 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { apiDelete, apiGet, apiPatch, apiPost } from './services/api'
 import RomGrid from './RomGrid'
 import SourcingFace from './Sourcing'
-import { STATE, TIER, describe, money } from './lib/format'
+import { STATE, TIER, count, describe, money } from './lib/format'
 import { resolveSpec, subTypesFor, unitTypeCodes } from './lib/equipment'
 import { byCode, locationOptions, nest } from './lib/locations'
-import type { DemandLineRow, EquipmentType, Project, ProjectLocation, RomBand, RomPriceRequest } from './types/rom'
+import type { DemandLineRow, EquipmentType, FreezeScopePreview, Project, ProjectLocation, RomBand, RomPriceRequest } from './types/rom'
 
 const STOPS = [
   ['DEMAND', 1], ['SOURCING', 1], ['AGREEMENT', 0], ['PRODUCTION', 0],
@@ -222,7 +222,7 @@ function DemandFace({ project, projectId }: { project: string; projectId?: strin
 
       {mode === 'grid' ? <RomGrid project={project} projectId={projectId} /> : <QuickPrice project={project} projectId={projectId} />}
 
-      <div style={{ marginTop: 16 }}><DemandBoard project={project} /></div>
+      <div style={{ marginTop: 16 }}><DemandBoard project={project} projectId={projectId} /></div>
     </div>
   )
 }
@@ -307,27 +307,81 @@ function QuickPrice({ project, projectId }: { project: string; projectId?: strin
   )
 }
 
-function DemandBoard({ project }: { project: string }) {
+function DemandBoard({ project, projectId }: { project: string; projectId?: string }) {
   const qc = useQueryClient()
-  const [selected, setSelected] = useState<string[]>([])
   const [scope, setScope] = useState('project')
+  const [scopeRef, setScopeRef] = useState('')
   const q = useQuery({ queryKey: ['demand-lines', project], queryFn: () => apiGet<DemandLineRow[]>(`/demand-lines?project=${project}`) })
   const lines = q.data ?? []
-  const invalidate = () => qc.invalidateQueries({ queryKey: ['demand-lines'] })
-  const freezeM = useMutation({ mutationFn: () => apiPost('/freeze', { line_ids: selected, project_id: project, scope, actor: 'web' }), onSuccess: () => { setSelected([]); invalidate() } })
+  const invalidate = () => {
+    qc.invalidateQueries({ queryKey: ['demand-lines'] })
+    qc.invalidateQueries({ queryKey: ['freeze-preview'] })
+    qc.invalidateQueries({ queryKey: ['candidates', project] })
+  }
+
+  // the project's own codes are the scope axis — a building freeze picks a real building
+  const locQ = useQuery({
+    queryKey: ['locations', projectId],
+    queryFn: () => apiGet<ProjectLocation[]>(`/projects/${projectId}/locations`),
+    enabled: !!projectId,
+  })
+  const locs = locQ.data ?? []
+  const refOptions = scope === 'building'
+    ? locs.filter((l) => l.kind === 'building')
+    : scope === 'area' ? locs.filter((l) => l.kind === 'area') : []
+  const needsRef = scope !== 'project'
+  const ref = needsRef ? (refOptions.some((o) => o.code === scopeRef) ? scopeRef : refOptions[0]?.code ?? '') : ''
+
+  // what this scope would lock, resolved server-side — the same query the freeze runs
+  const previewQ = useQuery({
+    queryKey: ['freeze-preview', project, scope, ref],
+    queryFn: () => apiGet<FreezeScopePreview>(
+      `/freeze/preview?project=${encodeURIComponent(project)}&scope=${scope}` +
+      (ref ? `&scope_ref=${encodeURIComponent(ref)}` : '')),
+    enabled: !needsRef || !!ref,
+  })
+  const preview = previewQ.data
+
+  const freezeM = useMutation({
+    mutationFn: () => apiPost('/freeze', { project_id: project, scope, scope_ref: ref || null, actor: 'web' }),
+    onSuccess: invalidate,
+  })
   const thawM = useMutation({ mutationFn: (id: string) => apiPost(`/demand-lines/${id}/thaw`, { reason: null }), onSuccess: invalidate })
-  const toggle = (id: string) => setSelected((s) => (s.includes(id) ? s.filter((x) => x !== id) : [...s, id]))
+  const covered = new Set(preview?.demand_line_ids ?? [])
 
   return (
     <div className="card">
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <h4 style={{ margin: 0 }}>③ Demand board</h4>
-        <div style={{ display: 'flex', gap: 8 }}>
-          <span style={{ fontSize: 11, color: 'var(--mut)', alignSelf: 'center' }}>freeze as</span>
-          <select className="si" value={scope} onChange={(e) => setScope(e.target.value)} title="how much of the design this freeze locks"><option value="project">project</option><option value="building">building</option><option value="system">system</option></select>
-          <button className="btn pri sm" onClick={() => freezeM.mutate()} disabled={selected.length === 0 || freezeM.isPending}>Freeze selected ({selected.length})</button>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+          <span style={{ fontSize: 11, color: 'var(--mut)' }}>freeze the</span>
+          <select className="si" value={scope} onChange={(e) => { setScope(e.target.value); setScopeRef('') }} title="how much of the design this freeze locks — design releases by place">
+            <option value="project">whole project</option>
+            <option value="building">building</option>
+            <option value="area">area / hall</option>
+          </select>
+          {needsRef && (
+            refOptions.length === 0
+              ? <span style={{ fontSize: 11, color: 'var(--red)' }}>no {scope} codes — add them in Projects</span>
+              : <select className="si" value={ref} onChange={(e) => setScopeRef(e.target.value)}>
+                  {refOptions.map((o) => <option key={o.id} value={o.code}>{o.code}{o.label ? ` · ${o.label}` : ''}</option>)}
+                </select>
+          )}
+          <button className="btn pri sm" onClick={() => freezeM.mutate()} disabled={!preview || preview.line_count === 0 || freezeM.isPending}>
+            {freezeM.isPending ? 'Freezing…' : `Freeze ${preview ? count(preview.line_count, 'line') : '…'} ▸`}
+          </button>
         </div>
       </div>
+      {preview && (
+        <div style={{ fontSize: 12, color: preview.line_count === 0 ? 'var(--mut)' : 'var(--ink)', margin: '6px 0 2px' }}>
+          {preview.line_count === 0
+            ? <>Nothing drafted in {scope === 'project' ? 'this project' : `${scope} ${ref}`} to freeze.</>
+            : <>This locks <strong>{count(preview.line_count, 'line')}</strong> · {count(preview.total_qty, 'unit')}
+                {preview.rom_extended != null && <> · {money(preview.rom_extended)} at ROM</>}
+                <span style={{ color: 'var(--mut)' }}> — the scope decides, not a hand-picked list.</span></>}
+        </div>
+      )}
+      {freezeM.isError && <div className="note">{String(freezeM.error).replace(/^Error:\s*/, '')}</div>}
       {lines.length === 0 && <p style={{ color: 'var(--mut)', fontSize: 13 }}>No demand yet — price a requirement and save it.</p>}
       {lines.length > 0 && (
         <table style={{ marginTop: 8 }}>
@@ -335,7 +389,11 @@ function DemandBoard({ project }: { project: string }) {
           <tbody>
             {lines.map((d) => (
               <tr key={d.id}>
-                <td>{d.state === 'drafted' && <input type="checkbox" checked={selected.includes(d.id)} onChange={() => toggle(d.id)} />}</td>
+                <td title={covered.has(d.id) ? 'in the current freeze scope' : undefined}>
+                  {d.state === 'drafted' && (covered.has(d.id)
+                    ? <span style={{ color: 'var(--accent)', fontWeight: 700 }}>•</span>
+                    : <span style={{ color: 'var(--line)' }}>·</span>)}
+                </td>
                 <td>{describe(d) || '—'}</td>
                 <td>{d.target_building ?? '—'}{d.target_area ? ` · ${d.target_area}` : ''}</td>
                 <td className="num">{d.qty}</td>

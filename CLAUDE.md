@@ -20,7 +20,11 @@ equipment**, not by a project, platform, or party. It outlives every system it t
   An equipment-type name is **physics only**; location, vendor, phase, first-of-kind are attributes.
   (⚠️ `CMDA`/`MNR`/`Compute`/`Mech` are **locations, not equipment types.**)
 - **Demand → freeze → match.** Demand originates at design; the ROM prices it from executed history.
-  **Freeze** locks it (scoped, reopenable). **Only frozen demand is sourceable — the gate.**
+  **Freeze** locks it (reopenable). Scope is the project's **location legend** — `project | building | area`,
+  because design releases by place — and the scope *selects* the lines rather than labelling a hand-picked set
+  (`freeze_event.scope_ref` records which). Grouping equipment to price to one vendor is a **sourcing** concern
+  (bid packages), never a freeze scope; `system` was dropped from spec §3 for that reason. **Only frozen demand
+  is sourceable — the gate.**
   Award commits supply and matches it. Every change is a disturbance to the match.
 - **Custody follows title.** Record owned by whoever holds title; transfers down the ownership chain
   (each holder becomes a subscriber); provenance gifts at handover, cross-campus pricing stays with the developer.
@@ -34,7 +38,7 @@ equipment**, not by a project, platform, or party. It outlives every system it t
   API-key auth (`X-API-Key`). Checks: `ruff` `mypy` `pytest` (backend), `oxlint` `tsc -b` `vite build` (frontend).
 - **DB schema `viasel`:** `equipment_type`, `executed_scope_line` (price corpus), `demand_line`, `freeze_event`,
   `thaw_event`, `sourcing_package`, `package_line`, `quote`, `scope_line`, `project`, `project_location`,
-  `legend_event`. Migrations `0001`–`0005`. Two rules live in the DB, not just in code: a demand line can be
+  `legend_event`. Migrations `0001`–`0007`. Two rules live in the DB, not just in code: a demand line can be
   in only one open package (partial unique index), and a quote targets a package **xor** a demand line (CHECK).
 - **Frontend = wireframe shell** (road pipeline + role tabs). Live faces:
   - **Projects** — create project · nested building/area codifiers (edit/delete/sort) · **freeze legend** (thaw needs reason).
@@ -52,9 +56,12 @@ equipment**, not by a project, platform, or party. It outlives every system it t
 ## Key endpoints (all require `X-API-Key`)
 `GET/POST /projects` · `GET/POST/PATCH/DELETE /projects/{id}/locations` · `POST /projects/{id}/legend/freeze|thaw`
 · `GET /equipment-types` · `POST /rom/price` · `POST /rom/price-batch` (whole list + rollup)
-· `GET/POST /demand-lines` · `POST /demand-lines/batch` · `POST /freeze` · `POST /demand-lines/{id}/thaw`
+· `GET/POST /demand-lines` · `POST /demand-lines/batch` · `GET /freeze/preview` · `POST /freeze`
+· `POST /demand-lines/{id}/thaw`
 · `GET /packages/candidates?project=` · `GET/POST /packages` · `GET /packages/{id}` · `POST /packages/{id}/quotes`
-· `POST /packages/{id}/award` · `DELETE /packages/{id}/lines/{dl_id}`
+· `POST /packages/{id}/award` · `POST /packages/{id}/lines` (move/combine) · `POST /packages/{id}/split`
+· `POST /packages/{id}/merge-lines` · `POST /packages/{id}/quotes/{q}/decline` · `DELETE /packages/{id}/quotes/{q}`
+· `DELETE /packages/{id}/lines/{dl_id}`
 · `GET/POST /demand-lines/{id}/quotes` · `POST /demand-lines/{id}/award` (the package-of-one shortcut; the UI
 uses packages) · `GET /health` (open).
 

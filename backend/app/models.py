@@ -103,7 +103,10 @@ class FreezeEvent(Base):
 
     id: Mapped[uuid.UUID] = _pk()
     project_id: Mapped[str] = mapped_column(String, nullable=False)
-    scope: Mapped[str] = mapped_column(String, nullable=False)  # project | building | system
+    # the scope axis IS the project's location legend — design releases by place, and a
+    # commercial grouping (which lots go to which vendor) belongs to sourcing, not to this gate
+    scope: Mapped[str] = mapped_column(String, nullable=False)  # project | building | area
+    scope_ref: Mapped[str | None] = mapped_column(String)  # which building/area; null for project
     demand_line_ids: Mapped[list | None] = mapped_column(JSONB)
     actor: Mapped[str | None] = mapped_column(String)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

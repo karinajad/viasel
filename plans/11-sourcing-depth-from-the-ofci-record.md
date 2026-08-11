@@ -132,6 +132,27 @@ Workbooks were parsed for cached cell values, not evaluated formulas.
 3. **`quote` has no `disposition_reason`.** Spec §7 says losing quotes are market data; every ruled-out
    bid in the real sheet carries a written reason, and none of it is capturable.
 
+4. **Freeze scope: `system` dropped, `area` added — spec §3 amended.** §3 says
+   `scope → project | building | system`, on the rationale that freeze is *"partial where design
+   releases in parts."* Working through what a "system" would be, there was no definition that
+   survived: HAC is a `sub_type` in the taxonomy (equipment, not a system); E/M skids are either
+   equipment types or design groupings depending on whether they're bought assembled; a discipline
+   axis would need a column on `equipment_type` and a classification call on six design terms
+   (`CMBX CTLH NGE SA SGENC SST TST`) that can't be read from the code. Meanwhile the case it was
+   meant to serve — grouping equipment to price to one vendor — **is already served by bid packages,
+   at the sourcing layer where it belongs.** A system axis would have put a commercial grouping
+   inside a design gate.
+
+   So the scope axis is now exactly the project's location legend: `project | building | area`.
+   Design releases by place; who supplies it is a separate question answered later.
+
+   Two consequences, both built: `freeze_event.scope_ref` records **which** building or area
+   (`scope='building'` with no building was an incomplete record — you couldn't answer "was C1
+   frozen?"), and **scope now selects the lines** instead of labelling a hand-picked set. Freeze
+   takes no `line_ids`; `GET /freeze/preview` shows what a scope would lock, and `POST /freeze`
+   resolves the same query. Hand-picking a subset and calling it a "building freeze" was a lie the
+   old UI allowed.
+
 ## D. Sequence
 
 **Packet 1 — leveling truth (small, corrective) — EXECUTED (migration `0006`)**

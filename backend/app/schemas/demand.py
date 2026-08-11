@@ -53,10 +53,21 @@ class DemandLineRead(BaseModel):
 
 
 class FreezeRequest(BaseModel):
-    line_ids: list[uuid.UUID]
     project_id: str
-    scope: str  # project | building | system
+    scope: str = "project"  # project | building | area — the project's location legend
+    scope_ref: str | None = None  # which building/area; not needed for a project freeze
     actor: str
+
+
+class FreezeScopePreview(BaseModel):
+    """What a freeze at this scope would cover, before committing to it."""
+
+    scope: str
+    scope_ref: str | None
+    line_count: int
+    total_qty: int
+    rom_extended: float | None
+    demand_line_ids: list[uuid.UUID]
 
 
 class ThawRequest(BaseModel):
@@ -76,6 +87,7 @@ class FreezeEventRead(BaseModel):
     id: uuid.UUID
     project_id: str
     scope: str
+    scope_ref: str | None
     demand_line_ids: list | None
     actor: str | None
     created_at: datetime

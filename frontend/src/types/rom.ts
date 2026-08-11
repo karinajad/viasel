@@ -104,3 +104,13 @@ export interface RomBand {
   layers: Record<string, number>
   note: string | null
 }
+
+/** What a freeze at a given scope would cover, resolved server-side. */
+export interface FreezeScopePreview {
+  scope: string
+  scope_ref: string | null
+  line_count: number
+  total_qty: number
+  rom_extended: number | null
+  demand_line_ids: string[]
+}
